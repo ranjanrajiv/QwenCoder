@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import python_dpo
-from python_dpo.cli import _STAGE_NAMES, build_parser
+from python_dpo.cli import _PLACEHOLDER_STAGES, build_parser
 from python_dpo.config import Config, ConfigError, Paths
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -113,11 +113,30 @@ def test_cli_version_exits_zero_and_prints_version():
     assert python_dpo.__version__ in result.stdout
 
 
-@pytest.mark.parametrize("command", sorted(_STAGE_NAMES))
+@pytest.mark.parametrize("command", sorted(_PLACEHOLDER_STAGES))
 def test_placeholder_subcommands_parse_and_return_nonzero(command):
     parser = build_parser()
     args = parser.parse_args([command])
-    assert args.func(args) != 0
+    assert args.func(args, Config.load()) != 0
+
+
+def test_problems_is_no_longer_a_placeholder():
+    assert "problems" not in _PLACEHOLDER_STAGES
+
+
+@pytest.mark.parametrize("subcommand", ["build", "validate"])
+def test_problems_subcommands_are_wired(subcommand):
+    parser = build_parser()
+    args = parser.parse_args(["problems", subcommand])
+    assert args.command == "problems"
+    assert args.problems_command == subcommand
+    assert callable(args.func)
+
+
+def test_bare_problems_prints_help_and_returns_nonzero():
+    result = _run_module("problems")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
 
 
 def test_no_subcommand_prints_help_and_returns_nonzero():

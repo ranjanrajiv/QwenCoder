@@ -7,10 +7,10 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Step 1, no pipeline stage has run yet, so every subdirectory below is empty
-except for a `.gitkeep` placeholder that keeps it present in git. They correspond
-1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the `Paths`
-dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
+As of Stage 2, only `problems/` holds a real artifact; the other subdirectories are
+still empty apart from a `.gitkeep` placeholder that keeps them present in git. They
+correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
+`Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
 `ensure_exists()` method can recreate this exact structure from scratch.
 
 ## Subdirectories
@@ -23,8 +23,20 @@ directory structure (via `.gitkeep`) is kept.
 
 ### `problems/`
 
-Curated Python programming problems that will serve as input to candidate generation.
-Not yet populated — problem sourcing is a later pipeline step.
+**Populated (Stage 2).** `problems.jsonl` holds the ten curated Python problems that
+serve as input to candidate generation — one JSON object per line, each with a prompt,
+function signature, trusted reference solution, and executable tests.
+
+Rebuild or re-check it with:
+
+```bash
+python -m python_dpo problems build      # regenerate (byte-identical if unchanged)
+python -m python_dpo problems validate   # re-run every reference test, read-only
+```
+
+The file is committed deliberately: it is a project deliverable, and the build is
+deterministic, so a rebuild produces no diff unless the catalog actually changed. See
+[`src/python_dpo/problems/`](../src/python_dpo/problems/README.md) for the schema.
 
 ### `candidates/`
 

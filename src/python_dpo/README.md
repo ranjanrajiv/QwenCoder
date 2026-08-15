@@ -1,9 +1,17 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. This is Step 1 of the
-pipeline (see the root [README.md](../../README.md)): packaging, CLI, logging, and
-configuration only. No model, dataset, sandbox, evaluation, or training code lives here
-yet.
+The `python_dpo` package — the installable core of the project. Through Stage 2 (see the
+root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
+configuration — plus the problem dataset in [`problems/`](problems/). No model inference,
+candidate generation, sandbox, evaluation, or training code lives here yet.
+
+## Subpackages
+
+### [`problems/`](problems/)
+
+The ground-truth layer: the problem/test-case schema, the ten curated problems and their
+trusted reference solutions, JSONL persistence, the swappable `ReferenceExecutor`, and
+dataset validation. See its [README](problems/README.md) for a file-by-file breakdown.
 
 ## Files
 
@@ -36,16 +44,28 @@ keeps runtime dependencies minimal).
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus five
   subcommands: `problems`, `generate`, `evaluate`, `preferences`, `run`.
-- Each subcommand is wired to a placeholder handler produced by
-  `_make_placeholder_handler(name)`. Every handler logs
-  `"<Stage> is not implemented yet."` through the module logger and **returns exit code
-  1** — never a fake success (spec §7).
+- `problems` is implemented (Stage 2) and owns two subcommands:
+  - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
+    `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
+    validates, so a failed build can't leave a half-trustworthy artifact behind.
+  - `_cmd_problems_validate` — reloads the persisted dataset, re-runs every reference
+    test, writes the summary to stdout, and returns non-zero on failure. Strictly
+    read-only.
+  - Bare `problems` prints help and returns 1, mirroring the top-level behavior.
+- The remaining stages in `_PLACEHOLDER_STAGES` are wired to a placeholder handler from
+  `_make_placeholder_handler(name)`, which logs `"<Stage> is not implemented yet."` and
+  **returns exit code 1** — never a fake success (spec 01 §7).
+- Handlers take `(args, config)`, so commands resolve paths from configuration rather
+  than hardcoding them.
 - `main(argv=None) -> int` — parses arguments, loads `Config` (via `config.py`),
   configures logging, and dispatches to the chosen subcommand handler. `--help` and
   `--version` are handled entirely by argparse before any config loading happens, so
   they always succeed even if `config.yaml` is broken. If `Config.load()` raises
   `ConfigError`, the message is logged and `main()` returns exit code 2. With no
   subcommand given, it prints help and returns 1.
+
+  The validation summary is the one place the application writes to stdout instead of
+  the log stream: it is user-facing report output, not diagnostics, and stays pipeable.
 
 ### `config.py`
 

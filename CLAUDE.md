@@ -15,6 +15,13 @@ Generated Python code is untrusted.
 Never execute generated code directly on the host. Execution of generated candidates
 must occur inside an isolated sandbox (introduced in a later step).
 
+Manually authored **reference solutions** are a deliberate exception: they ship with the
+repository, are reviewed like any other source file, and may be executed in-process to
+validate the problem dataset. That execution is confined to
+`InProcessReferenceExecutor`, behind the `ReferenceExecutor` protocol, so untrusted code
+can be routed to a sandboxed executor instead. Never pass model-generated code to the
+in-process executor.
+
 ## Testing
 
 Every new component must have automated tests.

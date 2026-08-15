@@ -1,7 +1,7 @@
 # tests/
 
-The test suite for Step 1. Everything here is offline and CPU-only (spec §14) — no
-network access, no GPU, no Docker, no Qwen model.
+The project's test suite. Everything here is offline and CPU-only — no network access,
+no GPU, no Docker, no Qwen model — and nothing is skipped.
 
 ## Files
 
@@ -33,10 +33,49 @@ One test per requirement in spec §14, plus a couple of guardrails:
   `python -m python_dpo --help` / `--version` as a subprocess (with `PYTHONPATH=src`
   injected, so this passes with or without an editable install) and check exit code 0
   (§14.5).
-- `test_placeholder_subcommands_parse_and_return_nonzero` — parametrized over all five
-  subcommands; each one's handler must return non-zero. Guards against a future
-  handler accidentally reporting fake success.
+- `test_placeholder_subcommands_parse_and_return_nonzero` — parametrized over the
+  subcommands that are still placeholders; each one's handler must return non-zero.
+  Guards against a future handler accidentally reporting fake success. Stage 2 narrowed
+  this from "all five subcommands" when `problems` became real — a requirement change,
+  not a test bent to fit an implementation.
+- `test_problems_is_no_longer_a_placeholder`, `test_problems_subcommands_are_wired`,
+  `test_bare_problems_prints_help_and_returns_nonzero` — the `problems` command group
+  dispatches `build` and `validate`, and bare `problems` exits 1.
 - `test_no_subcommand_prints_help_and_returns_nonzero` — running the CLI with no
   arguments prints help and exits 1.
 
-No test is skipped — spec §15 requires `pytest -q` to fully pass with zero skips.
+### `test_problems.py`
+
+Unit tests for the Stage 2 dataset layer (spec 02 §32), grouped by concern:
+
+- **Schema** — a valid problem constructs; empty prompt/signature/reference, missing
+  required fields, unknown fields, invalid category, invalid difficulty, a signature
+  that doesn't declare its entry point, and an empty test list are all rejected with
+  `ProblemError`.
+- **Test cases** — valid cases round-trip; a non-mapping `input`, a case setting both
+  `expected` and `expected_exception`, a malformed record, and duplicate test ids
+  within a problem are rejected.
+- **Executor** — passing and failing results, unexpected exceptions, matched and missing
+  `expected_exception`, a missing entry point, generator materialization, coroutine
+  functions, and the strict comparison that stops `True` passing as `1`.
+- **Validation** — too few tests, duplicate problem ids, the wrong problem count, and a
+  deliberately broken reference solution each make the dataset invalid.
+- **Storage** — JSONL round-trip equality, parent-directory creation, one object per
+  line, and rejection of malformed JSON (with its line number), invalid records,
+  duplicate ids, and a missing file.
+
+### `test_problems_integration.py`
+
+The end-to-end round trip (spec 02 §33): build the ten problems → validate → run every
+reference test → write JSONL → reload → validate again → PASS. Also covers determinism
+(two builds are byte-identical), the catalog's shape (ten ids, all ten categories, the
+5/4/1 difficulty split, ≥5 tests each), that each stored `reference_solution` is
+verbatim the code that runs, and the two properties that can't be expressed as
+input/expected pairs:
+
+- `chunk_sequence` really is a generator, yielding chunks one at a time.
+- `gather_in_order` really runs concurrently — five 0.05s operations finish well under
+  the 0.25s a sequential loop would take, with a wide margin so it can't flake — and
+  returns input order rather than completion order.
+
+No test is skipped — `pytest -q` must fully pass with zero skips.
