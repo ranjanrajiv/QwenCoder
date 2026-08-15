@@ -218,4 +218,13 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project Related
-.claude
+.claude/*
+!.claude/specs/
+!.claude/plans/
+
+# Generated dataset (data/) is a project deliverable and is intentionally NOT
+# ignored — see spec .claude/specs/01_project_skeleton.md section 13. Only
+# data/raw/ contents (third-party datasets fetched in a later step) are
+# excluded, since those are re-downloadable and not something we want to commit.
+data/raw/*
+!data/**/.gitkeep

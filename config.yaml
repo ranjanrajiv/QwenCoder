@@ -1,0 +1,13 @@
+project:
+  name: python-dpo
+
+paths:
+  raw_data: data/raw
+  problems: data/problems
+  candidates: data/candidates
+  evaluations: data/evaluations
+  preferences: data/preferences
+  reports: data/reports
+
+logging:
+  level: INFO
