@@ -34,6 +34,43 @@ Only the first stage — the problem dataset — is implemented. Everything from
 generation onward is still a placeholder that documents the intended shape of the
 pipeline.
 
+## Roadmap
+
+The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
+states its position, e.g. "Stage 2 of 12". Only the first two have been specified and
+implemented so far:
+
+| Stage | Delivers | Status |
+|-------|----------|--------|
+| 1 — Project Skeleton | Installable package, placeholder CLI, logging, typed config | Done |
+| 2 — Problem Dataset | 10 curated problems with reference solutions and tests (ground truth) | Done |
+| 3–12 — Candidate generation → DPO training | Qwen inference, sandboxed evaluation, preference-pair generation, QLoRA + DPO training | Not started |
+
+Stages 3–12 aren't specified yet, so the table above intentionally doesn't assign them
+individual names — the pipeline diagram lists the phases in order, but the exact stage
+boundaries will be set when each spec is written. Nothing in that range is implemented;
+see `CLAUDE.md`'s Scope Control rule.
+
+## Repository layout
+
+```
+.
+├── src/python_dpo/       # the installable package — see its README for file details
+│   ├── cli.py             # argparse CLI: problems build/validate + placeholders
+│   ├── config.py          # typed config.yaml loader
+│   ├── logging_config.py  # stderr logging setup
+│   └── problems/          # Stage 2: schema, catalog, storage, validation
+├── tests/                 # pytest suite — see tests/README.md
+├── data/                  # pipeline artifacts (tracked; see data/README.md)
+│   └── problems/problems.jsonl   # the Stage 2 dataset
+├── scripts/               # reserved for future operational scripts
+├── config.yaml            # project name, data paths, logging level
+└── CLAUDE.md              # engineering rules for this project
+```
+
+Every directory that holds real content has its own `README.md` with a file-by-file
+breakdown — start there for implementation details this file doesn't repeat.
+
 ## Installation
 
 ```bash
@@ -84,6 +121,9 @@ The problem dataset is the project's **ground-truth layer**. Every later stage j
 its problem ids, and candidate solutions are ultimately judged against its tests. A
 problem is not considered valid unless its own reference solution passes all of its
 tests, so the dataset is self-verifying.
+
+**At a glance:** 10 problems · 10/10 categories covered · 5 easy / 4 medium / 1 hard ·
+74 reference tests, all passing.
 
 ### Problem schema
 
