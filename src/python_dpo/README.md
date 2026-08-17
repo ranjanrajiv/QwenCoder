@@ -1,10 +1,10 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 5 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 6 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
 configuration — the problem dataset, the model abstraction, candidate generation, a
-reliable per-run persistence layer, and the isolated Docker sandbox. No evaluation,
-ranking, or training code lives here yet.
+reliable per-run persistence layer, the isolated Docker sandbox, and the candidate test
+executor. No ranking or training code lives here yet.
 
 ## Subpackages
 
@@ -47,11 +47,20 @@ CLI implementation, the executor, and the health check. `ContainerSpec.to_docker
 the project's entire security surface. See its [README](sandbox/README.md) and
 [`docs/sandbox-security.md`](../../docs/sandbox-security.md).
 
+### [`evaluation/`](evaluation/)
+
+Introduced in Stage 6, the candidate test executor. Generates a deterministic pytest
+suite from a problem's declared test cases, runs it against a candidate inside the
+Stage 5 sandbox, and persists per-test and per-candidate evidence of what happened —
+never a preference judgement. `CandidateEvaluator` orchestrates; `EvaluationRepository`
+and `EvaluationRunRepository` own persistence, mirroring `candidates/` and `runs/`. See
+its [README](evaluation/README.md).
+
 ## Files
 
 ### `__init__.py`
 
-Defines `__version__ = "0.1.0"` and `__all__ = ["__version__"]`. This is the single
+Defines `__version__ = "0.6.0"` and `__all__ = ["__version__"]`. This is the single
 source of truth for the package version — `pyproject.toml` reads it dynamically via
 `[tool.setuptools.dynamic]` so the two can never drift. Deliberately has no other
 imports, so `import python_dpo` stays cheap and has no dependency side effects.
@@ -85,8 +94,8 @@ keeps runtime dependencies minimal).
 - `build_parser() -> ArgumentParser` — a factory function (not a module-level parser)
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
-  `problems`, `generate`, `runs`, `candidates`, `sandbox`, and the
-  `evaluate`/`preferences`/`run` placeholders.
+  `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`, and
+  the `preferences`/`run` placeholders.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -106,6 +115,16 @@ keeps runtime dependencies minimal).
 - `candidates list` / `candidates show [--show-code] [--show-raw]` / `candidates stats` /
   `candidates migrate [--source] [--force]` inspect one run's candidates or upgrade the
   Stage 3 legacy flat file into a run directory.
+- `evaluate candidate --run-id --candidate-id [--force]` and
+  `evaluate run --run-id [--problem-id] [--limit] [--force]` (Stage 6) run
+  `CandidateEvaluator` against a generation run's candidates inside the evaluation
+  sandbox. `evaluate run` **resumes by default** — the opposite of `generate`'s
+  always-a-new-run default — because evaluation is idempotent and cheap to re-run where
+  generation burns GPU time; `--force` mints a new evaluation run instead. Both verify
+  the evaluator image is present before starting, so a missing image fails once with a
+  clear `docker build` message rather than producing many identical infrastructure
+  errors. `evaluations list` / `evaluations show` / `evaluations stats` inspect one
+  evaluation run's persisted results via `EvaluationRunRepository`.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -147,13 +166,20 @@ on `PyYAML` (spec §6 exception).
   wrapped here by `_parse_sandbox`. Like `ModelConfig`, the typed object lives in the layer
   it belongs to, so the dependency runs one way: configuration imports the sandbox package,
   never the reverse. `SandboxConfigError` is translated into `ConfigError` at that boundary.
+- `EvaluationConfig` — the Stage 6 `evaluation:` section (`image`, `timeout_seconds`,
+  `startup_grace_seconds`, `auto_pull`), defined in `evaluation/config.py` and wrapped
+  here by `_parse_evaluation` the same one-way-dependency, boundary-translation pattern
+  as `sandbox:`. Everything else the evaluation container needs — network mode, user,
+  capabilities, resource limits — is inherited from `sandbox:` at run time by
+  `build_evaluation_sandbox_config`, not re-specified here.
 - `GenerationSettings` — the `generation:` and `generation_strategies:` sections:
   `candidates_per_problem`, a validated `GenerationConfig`, the strategy list, and (Stage
   4) `retry: RetrySettings` from `generation.retry.max_attempts`. The typed model objects
   themselves live in `models/base.py`, so the dependency runs one way — configuration
   imports the model layer, never the reverse.
 - `Config` — a frozen dataclass holding `project_name`, `paths`, `log_level`,
-  `project_root`, `model`, and `generation`. `Config.load(path=None)` reads and validates
+  `project_root`, `model`, `generation`, `sandbox`, and `evaluation`. `Config.load(path=None)`
+  reads and validates
   `config.yaml` with
   `yaml.safe_load` (never `yaml.load`), checking every required key is present and of
   the right type, raising `ConfigError` otherwise.

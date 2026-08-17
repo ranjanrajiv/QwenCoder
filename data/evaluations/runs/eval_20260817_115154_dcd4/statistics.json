@@ -1,0 +1,18 @@
+{
+  "candidates_evaluated": 50,
+  "candidates_requested": 50,
+  "computed_at": "2026-08-17T11:54:58Z",
+  "evaluation_failures": 0,
+  "evaluation_run_id": "eval_20260817_115154_dcd4",
+  "failed": 20,
+  "infrastructure_errors": 0,
+  "passed": 30,
+  "statistics_version": "1.0",
+  "syntax_errors": 0,
+  "tests_errors": 3,
+  "tests_failed": 45,
+  "tests_passed": 322,
+  "tests_skipped": 0,
+  "tests_total": 370,
+  "timeouts": 0
+}

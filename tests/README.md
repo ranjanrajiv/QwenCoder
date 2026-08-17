@@ -3,13 +3,14 @@
 The project's test suite. The default run (`pytest -q`) is offline and CPU-only — no
 network access, no GPU, no Docker, no Qwen model — and nothing is skipped.
 
-Docker sandbox tests are marked `@pytest.mark.integration` and **deselected by default**
+Docker tests — the sandbox security suite and the candidate test executor's integration
+suite — are marked `@pytest.mark.integration` and **deselected by default**
 (`addopts = "-ra -m 'not integration'"` in `pyproject.toml`), which is what preserves the
 zero-skip property on every machine. Run them explicitly:
 
 ```bash
 pytest -q                  # the offline suite
-pytest -q -m integration   # the Docker sandbox security suite
+pytest -q -m integration   # Docker: sandbox security + candidate evaluation
 pytest -q -m ""            # everything
 ```
 
@@ -56,6 +57,17 @@ One test per requirement in spec §14, plus a couple of guardrails:
   dispatches `build` and `validate`, and bare `problems` exits 1.
 - `test_no_subcommand_prints_help_and_returns_nonzero` — running the CLI with no
   arguments prints help and exits 1.
+- `test_evaluate_is_not_a_placeholder`, `test_evaluate_subcommands_parse`,
+  `test_bare_evaluate_prints_help_and_returns_nonzero`,
+  `test_evaluate_candidate_reports_an_unknown_run_id`,
+  `test_evaluate_run_reports_an_unknown_run_id` (Stage 6) — `evaluate candidate`/
+  `evaluate run` flag parsing, and that an unknown generation run id is rejected
+  *before* any Docker work begins, so these stay fast and Docker-free.
+- `test_evaluations_subcommands_parse`, `test_bare_evaluations_prints_help_and_returns_nonzero`,
+  `test_evaluations_list_reports_an_unknown_eval_id`,
+  `test_evaluations_show_reports_an_unknown_eval_id`,
+  `test_evaluations_stats_reports_an_unknown_eval_id` — the `evaluations` inspection
+  group.
 
 ### `test_problems.py`
 
@@ -259,7 +271,11 @@ The Stage 5 sandbox suite, split by what it needs.
   directory, any host env var beyond the three passed deliberately). Plus source-level
   scans proving the package contains no `shell=True`, no `exec`/`eval`/`os.system`, and no
   `os.environ` pass-through. Same philosophy as `test_no_heavy_imports.py`: a rule one
-  careless edit away from being broken is asserted, not assumed.
+  careless edit away from being broken is asserted, not assumed. Extended in Stage 6 with
+  the same assertions run against the *evaluation* container's argv (built through
+  `build_evaluation_sandbox_config`), proving adding pytest did not weaken any Stage 5
+  isolation flag, and that the pytest command is a fixed argument list ending in
+  `test_candidate.py`, never a shell string.
 - **`test_executor_mock.py`** — a `FakeContainerRuntime` drives the executor through
   success, runtime error, syntax error, timeout (asserting the container is killed), output
   flood (truncated, terminated, and capped in memory), OOM → `resource_exceeded`, and
@@ -285,6 +301,76 @@ The Stage 5 sandbox suite, split by what it needs.
   container's environment against the bare image's, which is precise where a keyword scan
   for credential-shaped names is not (the stock image legitimately defines `GPG_KEY`).
 
+### `evaluation/`
+
+The Stage 6 candidate test executor suite, split by what it needs — same split as
+`sandbox/`.
+
+**No Docker required:**
+
+- **`test_models.py`** — the schema: `EvaluationResult`'s `passed`-requires-every-test
+  invariant enforced at construction (exit code 0 alone never produces `passed`); the
+  four counts always summing to `tests_total`; the boolean flags matching `status`; the
+  closed status sets; dict round-trips; `EvaluationManifest`'s status transition graph;
+  `EvaluationStatistics.from_records` against hand-counted fixtures.
+- **`test_config.py`** — `EvaluationConfig` defaults, `:latest`/unpinned image rejection,
+  unknown keys, and that `config.py` wraps `EvaluationConfigError` as `ConfigError` at
+  the package boundary — the same shape as `sandbox/test_config.py`.
+- **`test_test_generator.py`** — determinism; the `repr()`-literal, kwargs-call,
+  `asyncio.run`, generator-materialization, and `pytest.raises` code-generation rules;
+  the bool guard stopping `True` from satisfying `1`; one test function per case with a
+  traceable id; `ast.parse` accepts the generated source; the generated source contains
+  no `eval`/`exec`; `validate()` rejects a short or misnamed suite.
+- **`test_result_parser.py`** — all classification fixtures (all pass, partial failure,
+  runtime error, collection/syntax error, timeout, skipped); nonce filtering ignoring
+  ordinary candidate `print()` output; malformed JSON on a nonce line rejected, not
+  silently skipped. Includes real-pytest-subprocess regression tests for two bugs found
+  during manual verification: pytest's `-q` progress character (`.`/`F`/`s`) is written
+  on the same line as the nonce with no separating newline, so the parser must search for
+  the nonce as a substring, not `startswith`; and `pytest.raises(...)` raising its own
+  `Failed` exception on "DID NOT RAISE" must classify as a wrong-answer `failed`, not a
+  candidate `error`.
+- **`test_pytest_runner.py`** — `build_evaluation_sandbox_config` overlays only the four
+  evaluation-specific fields and inherits every isolation setting from the base sandbox
+  config unchanged; `PytestRunner.run` delegates to `execute_job` with the fixed pytest
+  command and every job file untouched.
+- **`test_probe.py`** — `probe_versions` parses a scripted probe result; a failed or
+  malformed probe raises `EvaluationError` rather than propagating a raw parse error.
+- **`test_executor.py`** — every classification path driven by a fake sandbox runner:
+  passed, failed, runtime error (candidate failure, never infrastructure), timeout,
+  syntax error via collection failure, infrastructure error, a zero-test problem, and a
+  generation-validation failure. Plus discrepancy detection against Stage 3's
+  `syntax_valid` and candidate immutability (source in equals source out).
+- **`test_repository.py`** — the lookup API, `evaluated_keys()` covering both results and
+  failures (the Stage 6 resume index — deliberately unlike Stage 4's generation
+  failures, which *are* retried), malformed-line rejection with a line number, a
+  truncated final line.
+- **`test_run_repository.py`** — evaluation-run-id format and uniqueness; create/get/list
+  (newest first); `latest_run_for_candidate_run` (the resume lookup `evaluate run` uses);
+  the full status lifecycle and resume-refuses-`completed` rule, mirroring
+  `test_runs.py`'s `RunRepository` coverage exactly.
+
+**Docker required (`-m integration`):**
+
+- **`test_integration.py`** — the six candidate fixtures (correct, wrong result, syntax
+  error, runtime exception, infinite loop, network attempt) run for real: a known-good
+  candidate passes every test; a deliberately wrong one fails with the *specific* test
+  ids identified; an infinite loop times out with the container cleaned up; an injected
+  Docker-unavailable runtime produces `infrastructure_error` without stopping the real
+  daemon; a network attempt is still classified as a candidate failure, never
+  infrastructure trouble, because the connection attempt raises inside the sandboxed
+  test. Plus the result-arithmetic invariant (`passed+failed+error+skipped == total`) and
+  an end-to-end `evaluate_many` persisting every result.
+
+  **The reference-solution self-check** —
+  `test_every_real_problems_generated_suite_passes_against_its_own_reference_solution` —
+  generates the real pytest suite for every problem in the committed dataset and runs it
+  against that problem's own trusted `reference_solution` inside the real sandbox; every
+  one must pass. This is the one test that would catch a subtle divergence between
+  `TestGenerator`'s comparison semantics and what the dataset was actually validated
+  under — without it, such a divergence would show up as "the model is bad" rather than
+  "the generator is wrong."
+
 ### `test_no_heavy_imports.py`
 
 A subprocess imports every `python_dpo` module and asserts `torch`, `transformers`, and
@@ -295,4 +381,5 @@ precisely when the rule could regress.
 
 No test is skipped, and none loads the real Qwen model — `pytest -q` must fully pass with
 zero skips, offline, on CPU. The Docker suite is opt-in via `-m integration` and is where
-the sandbox's security guarantees are demonstrated against a real container.
+the sandbox's security guarantees, and the candidate test executor's classification
+behavior, are demonstrated against real containers.

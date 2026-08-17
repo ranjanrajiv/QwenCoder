@@ -7,8 +7,8 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Stage 3, `problems/` and `candidates/` hold real artifacts; the other
-subdirectories are still empty apart from a `.gitkeep` placeholder that keeps them
+As of Stage 6, `problems/`, `candidates/`, and `evaluations/` hold real artifacts; the
+other subdirectories are still empty apart from a `.gitkeep` placeholder that keeps them
 present in git. They
 correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
 `Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
@@ -83,9 +83,40 @@ record of what a run actually produced, not as rebuildable artifacts.
 
 ### `evaluations/`
 
-Results of running candidates through the (future) Docker sandbox and pytest
-evaluation. Not yet populated — no execution or evaluation code exists yet (and per
-`CLAUDE.md`, none will until it can run inside an isolated sandbox).
+**Populated (Stage 6).** Results of running candidates against their problems' declared
+tests inside the Stage 5 Docker sandbox, via a deterministic pytest suite generated per
+candidate.
+
+- `runs/<eval_id>/` — every `evaluate` invocation creates its own self-contained
+  evaluation run directory, `eval_YYYYMMDD_HHMMSS_xxxx`:
+  - `manifest.json` — the evaluation run's configuration snapshot: which generation run
+    it covers, `requested_candidate_ids`, the probed Python/pytest versions actually
+    used, and the full sandbox isolation config (never today's `config.yaml`).
+  - `evaluations.jsonl` — one `EvaluationResult` per candidate: status
+    (`passed`/`failed`/`timeout`/`syntax_error`/`infrastructure_error`), per-status test
+    counts, `pass_rate`, duration, exit code.
+  - `test_results.jsonl` — one `TestCaseResult` per declared test case per candidate, so
+    a failure is traceable to the exact dataset test id, not just "this candidate
+    failed."
+  - `failures.jsonl` — candidates for which no job was ever attempted (unknown problem,
+    empty test suite, job validation failure). Deterministic given the same inputs, so
+    unlike generation failures these are never retried on resume.
+  - `statistics.json` — always reconstructable from the three files above.
+
+Evaluation never produces `chosen`/`rejected`, a reward, or a ranking — only objective
+execution evidence. Those transformations belong to a later stage.
+
+```bash
+docker build -t python-dpo-evaluator:1.0 docker/evaluator/   # once, before first use
+python -m python_dpo evaluate candidate --run-id RUN_ID --candidate-id CANDIDATE_ID
+python -m python_dpo evaluate run --run-id RUN_ID                    # resumes by default
+python -m python_dpo evaluate run --run-id RUN_ID --force            # a fresh evaluation run
+python -m python_dpo evaluations list / show / stats EVAL_ID
+```
+
+Evaluation run artifacts are committed as a record of what an evaluation actually found,
+for the same reason generation run artifacts are: not rebuildable byte-for-byte (a real
+model's output isn't reproducible), so the record is the deliverable.
 
 ### `preferences/`
 

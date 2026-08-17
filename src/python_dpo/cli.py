@@ -15,6 +15,19 @@ from .candidates import (
 )
 from .candidates.repository import FAILURES_FILENAME
 from .config import Config, ConfigError
+from .evaluation import (
+    EVALUATOR_VERSION,
+    TEST_GENERATOR_VERSION,
+    CandidateEvaluator,
+    EvaluationError,
+    EvaluationRunError,
+    EvaluationRunNotFoundError,
+    EvaluationRunRepository,
+    EvaluationStatistics,
+    PytestRunner,
+    build_evaluation_sandbox_config,
+    probe_versions,
+)
 from .generation import (
     PROMPT_VERSION,
     STRATEGIES,
@@ -48,6 +61,8 @@ from .runs import (
 )
 from .runs.repository import MANIFEST_FILENAME
 from .sandbox import (
+    DockerContainerRuntime,
+    SandboxError,
     SandboxExecutor,
     check_sandbox_health,
     format_health_report,
@@ -56,7 +71,6 @@ from .sandbox import (
 logger = logging.getLogger("python_dpo.cli")
 
 _PLACEHOLDER_STAGES = {
-    "evaluate": "Candidate evaluation",
     "preferences": "Preference pair generation",
     "run": "Full pipeline run",
 }
@@ -796,6 +810,421 @@ def _add_candidates_parser(subparsers: argparse._SubParsersAction) -> None:
     migrate_parser.set_defaults(func=_cmd_candidates_migrate)
 
 
+# -------------------------------------------------------------------------------- evaluate
+
+
+def _evaluation_run_repository(config: Config) -> EvaluationRunRepository:
+    return EvaluationRunRepository(config.paths.evaluations / "runs")
+
+
+def _ensure_evaluation_image(evaluation_config, runtime=None) -> str | None:
+    """Verify the evaluation image is present before starting, so a missing image fails
+    once with a clear message instead of producing N identical infrastructure errors.
+    Returns an error message, or ``None`` if the image is ready to use.
+    """
+    runtime = runtime if runtime is not None else DockerContainerRuntime()
+    try:
+        runtime.check_available()
+        if runtime.image_present(evaluation_config.image):
+            return None
+        if evaluation_config.auto_pull:
+            runtime.pull(evaluation_config.image)
+            return None
+    except SandboxError as exc:
+        return str(exc)
+    return (
+        f"{evaluation_config.image} is not present and evaluation.auto_pull is false; "
+        f"run: docker build -t {evaluation_config.image} docker/evaluator/"
+    )
+
+
+def _select_candidates_for_evaluation(candidates, problem_id, limit):
+    """Narrow a generation run's candidates down to what this invocation should evaluate."""
+    selected = list(candidates)
+    if problem_id is not None:
+        selected = [c for c in selected if c.problem_id == problem_id]
+        if not selected:
+            raise ValueError(f"no candidates for problem id {problem_id!r}")
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("--limit must be at least 1")
+        selected = selected[:limit]
+    return selected
+
+
+def _write_evaluation_statistics(
+    eval_run_repo: EvaluationRunRepository, evaluation_run_id: str
+) -> EvaluationStatistics:
+    manifest = eval_run_repo.get_run(evaluation_run_id)
+    repository = eval_run_repo.results(evaluation_run_id)
+    stats = EvaluationStatistics.from_records(
+        manifest, repository.load_all(), repository.load_failures()
+    )
+    eval_run_repo.write_statistics(stats)
+    return stats
+
+
+def _execute_evaluation(
+    eval_run_repo: EvaluationRunRepository,
+    manifest,
+    candidates,
+    problems_by_id: dict,
+    runner: PytestRunner,
+) -> int:
+    """Run evaluation for an already-created (or resumed) manifest and settle its status."""
+    manifest = eval_run_repo.start_run(manifest.evaluation_run_id)
+    repository = eval_run_repo.results(manifest.evaluation_run_id)
+    evaluator = CandidateEvaluator(runner=runner, repository=repository)
+
+    try:
+        summary = evaluator.evaluate_many(
+            list(candidates), problems_by_id, evaluation_run_id=manifest.evaluation_run_id
+        )
+    except KeyboardInterrupt:
+        eval_run_repo.interrupt_run(manifest.evaluation_run_id)
+        _write_evaluation_statistics(eval_run_repo, manifest.evaluation_run_id)
+        logger.warning(
+            "Evaluation run %s interrupted; resume with: "
+            "python -m python_dpo evaluate run --run-id %s",
+            manifest.evaluation_run_id,
+            manifest.candidate_run_id,
+        )
+        return 130
+
+    stats = _write_evaluation_statistics(eval_run_repo, manifest.evaluation_run_id)
+    complete = stats.candidates_evaluated + stats.evaluation_failures >= manifest.requested_candidates
+
+    if complete:
+        eval_run_repo.complete_run(manifest.evaluation_run_id)
+        final_status = "completed"
+    else:
+        eval_run_repo.interrupt_run(manifest.evaluation_run_id)
+        final_status = "interrupted"
+
+    logger.info(
+        "Evaluation run %s %s | evaluated=%d skipped=%d machinery_failed=%d | "
+        "passed=%d failed=%d",
+        manifest.evaluation_run_id,
+        final_status,
+        summary.evaluated,
+        summary.skipped,
+        summary.machinery_failed,
+        stats.passed,
+        stats.failed,
+    )
+    return 0 if final_status == "completed" else 1
+
+
+def _run_evaluation(
+    args: argparse.Namespace,
+    config: Config,
+    *,
+    problem_id: str | None,
+    candidate_id: str | None,
+    limit: int | None,
+) -> int:
+    """Shared core of ``evaluate candidate`` and ``evaluate run``: resolve the target
+    evaluation run (resuming by default, spec sections 56-57 -- the opposite default from
+    ``generate``, since evaluation is idempotent and cheap to re-run where generation
+    burns GPU time), then evaluate.
+    """
+    run_repo = _run_repository(config)
+    run_dir = run_repo.run_dir(args.run_id)
+    if not (run_dir / MANIFEST_FILENAME).is_file():
+        logger.error("no run %r at %s", args.run_id, run_dir)
+        return 1
+
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+    problems_by_id = {p.id: p for p in problems}
+
+    try:
+        all_candidates = run_repo.candidates(args.run_id).load_all()
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if candidate_id is not None:
+        selected = [c for c in all_candidates if c.candidate_id == candidate_id]
+        if not selected:
+            logger.error("no candidate %r in run %r", candidate_id, args.run_id)
+            return 1
+    else:
+        try:
+            selected = _select_candidates_for_evaluation(all_candidates, problem_id, limit)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
+
+    missing_problems = sorted({c.problem_id for c in selected} - set(problems_by_id))
+    if missing_problems:
+        logger.error(
+            "candidate(s) reference unknown problem id(s): %s", ", ".join(missing_problems)
+        )
+        return 1
+
+    eval_run_repo = _evaluation_run_repository(config)
+    selected_ids = [c.candidate_id for c in selected]
+
+    manifest = None
+    candidate_ids_to_run: set[str] = set(selected_ids)
+    if not args.force:
+        existing = eval_run_repo.latest_run_for_candidate_run(args.run_id)
+        if existing is not None:
+            requested = set(existing.requested_candidate_ids)
+            if not set(selected_ids).issubset(requested):
+                logger.error(
+                    "evaluation run %r already covers %r with a different candidate "
+                    "selection; use --force to start a new evaluation run",
+                    existing.evaluation_run_id,
+                    args.run_id,
+                )
+                return 1
+            if existing.status == "completed":
+                logger.info(
+                    "Evaluation run %s already completed; nothing to do.",
+                    existing.evaluation_run_id,
+                )
+                return 0
+            manifest = existing
+            candidate_ids_to_run = requested
+
+    image_error = _ensure_evaluation_image(config.evaluation)
+    if image_error:
+        logger.error("%s", image_error)
+        return 1
+
+    eval_sandbox_config = build_evaluation_sandbox_config(config.sandbox, config.evaluation)
+
+    if manifest is None:
+        try:
+            python_version, pytest_version = probe_versions(eval_sandbox_config)
+        except EvaluationError as exc:
+            logger.error("%s", exc)
+            return 1
+        manifest = eval_run_repo.create_run(
+            candidate_run_id=args.run_id,
+            evaluator_version=EVALUATOR_VERSION,
+            test_generator_version=TEST_GENERATOR_VERSION,
+            pytest_version=pytest_version,
+            python_version=python_version,
+            sandbox_config=eval_sandbox_config.to_dict(),
+            requested_candidate_ids=selected_ids,
+            requested_problem_id=problem_id,
+        )
+        logger.info(
+            "Evaluation run %s created | candidate run %s | %d candidate(s)",
+            manifest.evaluation_run_id,
+            args.run_id,
+            len(selected_ids),
+        )
+    else:
+        logger.info("Resuming evaluation run %s", manifest.evaluation_run_id)
+
+    candidates_to_run = [c for c in all_candidates if c.candidate_id in candidate_ids_to_run]
+    runner = PytestRunner(SandboxExecutor(config=eval_sandbox_config))
+
+    return _execute_evaluation(eval_run_repo, manifest, candidates_to_run, problems_by_id, runner)
+
+
+def _cmd_evaluate_candidate(args: argparse.Namespace, config: Config) -> int:
+    """Evaluate one candidate (spec section 53)."""
+    return _run_evaluation(args, config, problem_id=None, candidate_id=args.candidate_id, limit=None)
+
+
+def _cmd_evaluate_run(args: argparse.Namespace, config: Config) -> int:
+    """Evaluate a generation run's candidates, resuming by default (spec sections 53-57)."""
+    return _run_evaluation(args, config, problem_id=args.problem_id, candidate_id=None, limit=args.limit)
+
+
+def _add_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Evaluate generated candidates against their problems' declared tests.",
+        description=(
+            "Run a candidate's persisted code against its problem's test suite inside the "
+            "isolated Docker sandbox and record objective execution evidence (pass/fail "
+            "counts, error types, durations). Never computes chosen/rejected, a reward, "
+            "or a ranking; that belongs to a later stage."
+        ),
+    )
+    evaluate_parser.set_defaults(func=_make_help_handler(evaluate_parser))
+
+    evaluate_subparsers = evaluate_parser.add_subparsers(dest="evaluate_command")
+
+    candidate_parser = evaluate_subparsers.add_parser("candidate", help="Evaluate one candidate.")
+    candidate_parser.add_argument("--run-id", required=True, help="Generation run id.")
+    candidate_parser.add_argument("--candidate-id", required=True)
+    candidate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Never resume: start a new evaluation run even if one already covers this candidate.",
+    )
+    candidate_parser.set_defaults(func=_cmd_evaluate_candidate)
+
+    run_parser = evaluate_subparsers.add_parser(
+        "run", help="Evaluate a generation run's candidates, resuming by default."
+    )
+    run_parser.add_argument("--run-id", required=True, help="Generation run id.")
+    run_parser.add_argument(
+        "--problem-id", default=None, help="Evaluate only candidates for this problem."
+    )
+    run_parser.add_argument(
+        "--limit", type=int, default=None, help="Evaluate only the first N candidates."
+    )
+    run_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Never resume: start a new evaluation run even if one already exists for this generation run.",
+    )
+    run_parser.set_defaults(func=_cmd_evaluate_run)
+
+
+# ------------------------------------------------------------------------------ evaluations
+
+
+def _cmd_evaluations_list(args: argparse.Namespace, config: Config) -> int:
+    eval_run_repo = _evaluation_run_repository(config)
+    try:
+        eval_run_repo.get_run(args.eval_id)
+    except EvaluationRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    results = eval_run_repo.results(args.eval_id).load_all()
+    if not results:
+        sys.stdout.write("No evaluation results found.\n")
+        return 0
+
+    header = f"{'CANDIDATE_ID':<16}{'PROBLEM_ID':<13}{'STATUS':<14}{'TESTS'}"
+    lines = [header]
+    lines.extend(
+        f"{r.candidate_id:<16}{r.problem_id:<13}{r.status:<14}{r.tests_passed}/{r.tests_total}"
+        for r in results
+    )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_evaluations_show(args: argparse.Namespace, config: Config) -> int:
+    eval_run_repo = _evaluation_run_repository(config)
+    try:
+        eval_run_repo.get_run(args.eval_id)
+    except EvaluationRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = eval_run_repo.results(args.eval_id)
+    result = repository.get(args.candidate_id)
+    if result is None:
+        failure = next(
+            (f for f in repository.load_failures() if f.candidate_id == args.candidate_id),
+            None,
+        )
+        if failure is None:
+            logger.error(
+                "no evaluation result for candidate %r in %r", args.candidate_id, args.eval_id
+            )
+            return 1
+        lines = [
+            f"Candidate: {failure.candidate_id}",
+            f"  Problem: {failure.problem_id}",
+            "  No job was attempted (machinery failure):",
+            f"  Error type: {failure.error_type}",
+            f"  Error message: {failure.error_message}",
+            f"  At: {failure.timestamp}",
+        ]
+        sys.stdout.write("\n".join(lines) + "\n")
+        return 0
+
+    lines = [
+        f"Candidate: {result.candidate_id}",
+        f"  Problem: {result.problem_id}",
+        f"  Status: {result.status}",
+        f"  Tests: {result.tests_passed}/{result.tests_total} passed "
+        f"({result.tests_failed} failed, {result.tests_error} error, {result.tests_skipped} skipped)",
+        f"  Pass rate: {result.pass_rate}",
+        f"  Duration: {result.duration_ms} ms",
+        f"  Exit code: {result.exit_code}",
+        f"  Evaluated at: {result.evaluation_timestamp}",
+    ]
+    if result.metadata_discrepancy:
+        lines.append(f"  Discrepancy: {result.discrepancy_reason}")
+
+    failing = [t for t in repository.test_results_for(args.candidate_id) if t.status != "passed"]
+    if failing:
+        lines += ["", "Failing tests:"]
+        lines.extend(
+            f"  {t.test_case_id}: {t.status} ({t.error_type}) {t.error_message}" for t in failing
+        )
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_evaluations_stats(args: argparse.Namespace, config: Config) -> int:
+    eval_run_repo = _evaluation_run_repository(config)
+    try:
+        manifest = eval_run_repo.get_run(args.eval_id)
+    except EvaluationRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = eval_run_repo.results(args.eval_id)
+    stats = EvaluationStatistics.from_records(
+        manifest, repository.load_all(), repository.load_failures()
+    )
+
+    lines = [
+        f"Candidates requested: {stats.candidates_requested}",
+        f"Candidates evaluated: {stats.candidates_evaluated}",
+        f"Evaluation failures: {stats.evaluation_failures}",
+        f"Passed: {stats.passed}",
+        f"Failed: {stats.failed}",
+        f"Timeouts: {stats.timeouts}",
+        f"Syntax errors: {stats.syntax_errors}",
+        f"Infrastructure errors: {stats.infrastructure_errors}",
+        "",
+        f"Tests: {stats.tests_passed}/{stats.tests_total} passed "
+        f"({stats.tests_failed} failed, {stats.tests_errors} error, {stats.tests_skipped} skipped)",
+    ]
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _add_evaluations_parser(subparsers: argparse._SubParsersAction) -> None:
+    evaluations_parser = subparsers.add_parser(
+        "evaluations",
+        help="Inspect evaluation runs.",
+        description="List, show, and summarize evaluation results.",
+    )
+    evaluations_parser.set_defaults(func=_make_help_handler(evaluations_parser))
+
+    evaluations_subparsers = evaluations_parser.add_subparsers(dest="evaluations_command")
+
+    list_parser = evaluations_subparsers.add_parser(
+        "list", help="List results in an evaluation run."
+    )
+    list_parser.add_argument("eval_id")
+    list_parser.set_defaults(func=_cmd_evaluations_list)
+
+    show_parser = evaluations_subparsers.add_parser(
+        "show", help="Show one candidate's evaluation result."
+    )
+    show_parser.add_argument("eval_id")
+    show_parser.add_argument("candidate_id")
+    show_parser.set_defaults(func=_cmd_evaluations_show)
+
+    stats_parser = evaluations_subparsers.add_parser(
+        "stats", help="Show evaluation run statistics."
+    )
+    stats_parser.add_argument("eval_id")
+    stats_parser.set_defaults(func=_cmd_evaluations_stats)
+
+
 # ------------------------------------------------------------------------------- sandbox
 
 
@@ -921,6 +1350,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runs_parser(subparsers)
     _add_candidates_parser(subparsers)
     _add_sandbox_parser(subparsers)
+    _add_evaluate_parser(subparsers)
+    _add_evaluations_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

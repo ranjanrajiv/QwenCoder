@@ -3,14 +3,14 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 5 — Isolated Docker Sandbox.** The foundation (packaging, CLI,
+**Current status: Stage 6 — Candidate Test Executor.** The foundation (packaging, CLI,
 logging, typed configuration), the ground-truth layer (10 curated Python problems with
 trusted reference solutions and executable tests), candidate generation with a Qwen Coder
 model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic persistence,
-resume, retry, integrity validation), and an isolated Docker execution sandbox are in
-place. No evaluation, ranking, preference-pair generation, or training code has been
-implemented yet — and **generated code is executed only inside the sandbox, never on the
-host**.
+resume, retry, integrity validation), an isolated Docker execution sandbox, and a
+pytest-based candidate test executor are in place. No ranking, preference-pair
+generation, or training code has been implemented yet — and **generated code, and the
+tests generated for it, are executed only inside the sandbox, never on the host**.
 
 ## Planned pipeline
 
@@ -34,13 +34,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first five stages are implemented. Everything from pytest evaluation onward is still
+The first six stages are implemented. Everything from candidate ranking onward is still
 a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Five have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Six have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -50,9 +50,10 @@ far:
 | 3 — Qwen Candidate Generator | Model abstraction, 5 strategies, code extraction, candidate persistence | Done |
 | 4 — Candidate Persistence | Per-run directories, manifests, SHA-256 hashes, atomic writes, resume, retry, integrity validation | Done |
 | 5 — Isolated Docker Sandbox | Locked-down container execution, resource limits, structured results, security test suite | Done |
-| 6–12 — Evaluation → DPO training | pytest evaluation, ranking, preference-pair generation, QLoRA + DPO training | Not started |
+| 6 — Candidate Test Executor | Deterministic pytest-suite generation, sandboxed evaluation, per-test evidence | Done |
+| 7–12 — Ranking → DPO training | Candidate ranking, preference-pair generation, QLoRA + DPO training | Not started |
 
-Stages 6–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 7–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -62,7 +63,7 @@ see `CLAUDE.md`'s Scope Control rule.
 ```
 .
 ├── src/python_dpo/       # the installable package — see its README for file details
-│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates, sandbox
+│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates, sandbox, evaluate
 │   ├── config.py          # typed config.yaml loader
 │   ├── atomic_io.py       # Stage 4: durable JSON/JSONL primitives
 │   ├── logging_config.py  # stderr logging setup
@@ -71,16 +72,19 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── generation/        # Stage 3: strategies, prompts, extraction, orchestration
 │   ├── candidates/        # Stage 3/4: candidate schema and run-scoped repository
 │   ├── runs/              # Stage 4: run manifests, statistics, migration, validation
-│   └── sandbox/           # Stage 5: isolated Docker execution of untrusted code
+│   ├── sandbox/           # Stage 5: isolated Docker execution of untrusted code
+│   └── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
 │   ├── candidates/candidates.jsonl # legacy Stage 3 flat file (read-only; see migrate)
-│   └── candidates/runs/            # Stage 4: one directory per generation run
+│   ├── candidates/runs/            # Stage 4: one directory per generation run
+│   └── evaluations/runs/           # Stage 6: one directory per evaluation run
+├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
 ├── scripts/               # operational scripts (real-model smoke test)
-├── config.yaml            # project name, data paths, logging, model, generation, sandbox
+├── config.yaml            # project name, data paths, logging, model, generation, sandbox, evaluation
 └── CLAUDE.md              # engineering rules for this project
 ```
 
@@ -111,12 +115,13 @@ logs, or this README.
 
 ```bash
 pytest -q                  # offline, Docker-free, zero skips
-pytest -q -m integration   # the Docker sandbox security suite (needs a daemon + image)
+pytest -q -m integration   # Docker: sandbox security + candidate evaluation (needs a daemon + images)
 ```
 
 Integration tests are deselected by default so the standard run needs no Docker and reports
-no skips. They are not optional extras — they are where the sandbox's security guarantees
-are demonstrated against a real daemon.
+no skips. They are not optional extras — they are where the sandbox's security guarantees,
+and the candidate test executor's classification behavior, are demonstrated against a real
+daemon.
 
 ## CLI
 
@@ -144,21 +149,30 @@ python -m python_dpo candidates migrate         # upgrade the legacy flat file i
 
 python -m python_dpo sandbox health              # verify Docker end to end (see Stage 5)
 python -m python_dpo sandbox run --file FILE     # run a file inside the sandbox
+
+python -m python_dpo evaluate candidate --run-id RUN_ID --candidate-id CANDIDATE_ID
+python -m python_dpo evaluate run --run-id RUN_ID       # resumes by default (see Stage 6)
+python -m python_dpo evaluate run --run-id RUN_ID --force  # start a fresh evaluation run
+
+python -m python_dpo evaluations list EVAL_ID    # results in an evaluation run
+python -m python_dpo evaluations show EVAL_ID CANDIDATE_ID
+python -m python_dpo evaluations stats EVAL_ID
 ```
 
 The remaining subcommands exist as **placeholders only**. Each logs a "not implemented
 yet" message and exits with status `1` — none of them do real work:
 
-- `python -m python_dpo evaluate`
 - `python -m python_dpo preferences`
 - `python -m python_dpo run`
 
 ## Configuration
 
 Runtime settings live in `config.yaml` at the project root: project name, data directory
-paths, logging level, the `model` / `generation` / `generation_strategies` sections, and
-the Stage 5 `sandbox` section (image, resource limits, isolation toggles). See
-`src/python_dpo/config.py` for how it's loaded and validated.
+paths, logging level, the `model` / `generation` / `generation_strategies` sections, the
+Stage 5 `sandbox` section (image, resource limits, isolation toggles), and the Stage 6
+`evaluation` section (evaluator image, timeout, startup grace, auto-pull — every
+isolation setting itself is inherited from `sandbox` at run time, never re-specified).
+See `src/python_dpo/config.py` for how it's loaded and validated.
 
 The model identifier lives in configuration and never in source code, so swapping models
 requires no code change. **No credentials belong in this file.**
@@ -552,3 +566,110 @@ pytest -q -m integration   # 33 tests proving the boundaries against a real daem
 The security guarantees are asserted at two levels: `test_sandbox_security.py` pins the
 generated argv (no Docker needed, runs on every commit) and `test_sandbox_integration.py`
 demonstrates the same properties against a live container.
+
+## Stage 6 — Candidate Test Executor
+
+### Purpose
+
+Stage 5 built the boundary that makes running untrusted code safe; Stage 6 is what it
+was built for. `CandidateEvaluator` turns a persisted candidate into objective evidence
+of whether it actually solved its problem: a deterministic pytest suite is generated
+from the problem's declared test cases, run against the candidate inside the sandbox,
+and the per-test outcome is persisted.
+
+**This layer answers "what happened when this candidate was tested?" — never "is this
+the best candidate?"** It never produces `chosen`/`rejected` pairs, a reward, or a
+ranking; `pass_rate` is stored as a metric, not consumed as a preference signal. Those
+transformations belong to Stage 7+.
+
+**At a glance (the real Stage 4 run, `run_20260817_055411`, 50 candidates across all 10
+problems):** 30/50 candidates passed every test · 20/50 failed at least one · 0 timeouts
+· 0 syntax errors · 0 infrastructure errors · 322/370 individual test cases passed.
+
+### How a candidate is evaluated
+
+```
+candidate.py + test_candidate.py + conftest.py  →  isolated workspace  →  container
+  →  python -m pytest -q -p no:cacheprovider test_candidate.py
+  →  nonce-prefixed JSON result lines on stdout  →  parsed  →  classified  →  persisted
+```
+
+`test_candidate.py` has one `def test_<problem>_<case>():` function per declared test
+case, so a failure is traceable straight back to the dataset id. Values are embedded via
+`repr()` of the problem's JSON-native `input`/`expected` fields — never string
+interpolation, never `eval()`. The comparison helper deliberately mirrors
+`InProcessReferenceExecutor._values_match` (including the guard that stops `True` from
+satisfying `1`), because the dataset's expected values were validated under exactly
+those rules; `tests/evaluation/test_integration.py`'s reference-solution self-check
+proves this stays true by running every real problem's generated suite against its own
+trusted reference solution.
+
+Results come back as nonce-prefixed JSON lines printed by a generated `conftest.py` —
+not JUnit XML, not a report file — which needs no extra dependency and works unchanged
+against a read-only, non-root workspace. The nonce defends against accidental collision
+with a candidate's own `print()` output, not a deliberately adversarial candidate; what
+actually catches a forged or truncated result set is that every expected test id must be
+accounted for, or it is synthesized as an `error` rather than silently dropped.
+
+### Classification
+
+| Condition | Status |
+|---|---|
+| Sandbox infrastructure failure, or no job could be attempted at all | `infrastructure_error` |
+| Sandbox reported a timeout | `timeout` |
+| The candidate's file failed to collect (a real syntax error) | `syntax_error` |
+| Every declared test passed | `passed` |
+| Otherwise | `failed` |
+
+Exit code 0 alone never produces `passed` — every test must actually be accounted for
+and pass. A candidate runtime exception during a test is a **candidate** failure (test-
+level `error`, candidate-level `failed`), never mistaken for infrastructure trouble; the
+two are validated as mutually exclusive at the record level.
+
+### The evaluation image
+
+`docker/evaluator/Dockerfile` pins `python:3.12-slim` plus `pytest==8.3.4`, tagged
+`python-dpo-evaluator:1.0`, built locally rather than pulled — the container has no
+network at evaluation time, so pytest must already be present at build time:
+
+```bash
+docker build -t python-dpo-evaluator:1.0 docker/evaluator/
+```
+
+Every Stage 5 isolation setting — network mode, non-root user, dropped capabilities,
+resource limits, the read-only workspace — is inherited from the audited `sandbox:`
+config unchanged by `build_evaluation_sandbox_config`; only the image and timeout budget
+differ for evaluation. Adding pytest weakens nothing.
+
+### Resume semantics
+
+`evaluate run --run-id R` **resumes the latest incomplete evaluation run for `R` by
+default** — deliberately the *opposite* default from `generate` (Stage 4 always starts a
+new run). Evaluation is idempotent and cheap to re-run where generation burns GPU time,
+which is what makes the asymmetry defensible. `--force` always mints a fresh evaluation
+run instead.
+
+```bash
+python -m python_dpo evaluate run --run-id RUN_ID        # first call: creates eval_...
+python -m python_dpo evaluate run --run-id RUN_ID        # second call: already completed, no-op
+python -m python_dpo evaluate run --run-id RUN_ID --force # a brand-new evaluation run
+```
+
+### Persisted evidence
+
+```
+data/evaluations/runs/eval_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json        # candidate run covered, probed pytest/Python versions, sandbox config
+├── evaluations.jsonl     # one EvaluationResult per candidate
+├── test_results.jsonl    # one TestCaseResult per declared test case per candidate
+├── failures.jsonl        # candidates for which no job was ever attempted
+└── statistics.json       # reconstructable from evaluations.jsonl + failures.jsonl
+```
+
+### Testing
+
+```bash
+pytest -q                  # offline, Docker-free, zero skips
+pytest -q -m integration   # sandbox security + 13 evaluation tests against real containers,
+                            # including the reference-solution self-check across all 10 problems
+```

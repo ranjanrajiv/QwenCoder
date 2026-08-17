@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from python_dpo.evaluation.config import EvaluationConfig
+from python_dpo.evaluation.pytest_runner import PYTEST_COMMAND, build_evaluation_sandbox_config
 from python_dpo.sandbox import (
     EXECUTION_COMMAND,
     ContainerSpec,
@@ -35,6 +37,22 @@ def build_args(config: SandboxConfig | None = None, workspace="/tmp/job-dir") ->
         name=container_name("20260817_150000_ab12"),
         image=config.image_reference,
         command=EXECUTION_COMMAND,
+        workspace_path=Path(workspace),
+        config=config,
+    )
+    return spec.to_docker_args()
+
+
+def build_evaluation_args(workspace="/tmp/job-dir") -> list[str]:
+    # Spec section 78: the evaluation container's argv is built from the *derived*
+    # sandbox config (base sandbox settings overlaid only with the evaluation image and
+    # timeout), never a hand-rolled one -- so a config that weakens isolation for
+    # evaluation specifically is not even expressible.
+    config = build_evaluation_sandbox_config(SandboxConfig(), EvaluationConfig())
+    spec = ContainerSpec(
+        name=container_name("20260817_150000_ab12"),
+        image=config.image_reference,
+        command=PYTEST_COMMAND,
         workspace_path=Path(workspace),
         config=config,
     )
@@ -252,3 +270,67 @@ def test_disabling_hardening_is_visible_in_the_argv():
     assert pair_present(args, "--network", "none")
     assert pair_present(args, "--user", "65534:65534")
     assert pair_present(args, "--security-opt", "no-new-privileges")
+
+
+# ---------------------------------------------------------- evaluation container (spec 06 §78)
+
+
+def test_evaluation_container_carries_every_stage_5_isolation_flag():
+    # Adding pytest must not weaken network isolation, capabilities, or resource limits;
+    # the evaluation argv is asserted against the exact same flags as the plain
+    # candidate-execution argv above.
+    args = build_evaluation_args()
+    assert pair_present(args, "--network", "none")
+    assert pair_present(args, "--user", "65534:65534")
+    assert not pair_present(args, "--user", "0")
+    assert not pair_present(args, "--user", "0:0")
+    assert pair_present(args, "--cap-drop", "ALL")
+    assert pair_present(args, "--security-opt", "no-new-privileges")
+    assert "--read-only" in args
+    assert pair_present(args, "--pids-limit", "64")
+    assert pair_present(args, "--cpus", "1.0")
+    assert pair_present(args, "--memory", "512m")
+    assert pair_present(args, "--memory-swap", "512m")
+    assert pair_present(args, "--workdir", "/workspace")
+
+
+def test_evaluation_container_still_mounts_only_the_read_only_workspace():
+    args = build_evaluation_args(workspace="/tmp/job-dir")
+    mounts = [args[i + 1] for i, a in enumerate(args) if a == "--volume"]
+    assert mounts == ["/tmp/job-dir:/workspace:ro"]
+
+
+def test_evaluation_container_still_passes_only_the_three_environment_variables():
+    args = build_evaluation_args()
+    passed = {args[i + 1].split("=", 1)[0] for i, a in enumerate(args) if a == "--env"}
+    assert passed == {"PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "HOME"}
+
+
+def test_evaluation_container_uses_the_pinned_evaluator_image_not_the_base_image():
+    # Only image/timeout/startup_grace/auto_pull differ from the Stage 5 base config.
+    args = build_evaluation_args()
+    assert "python-dpo-evaluator:1.0" in args
+    assert "python:3.12-slim" not in args
+
+
+def test_evaluation_command_is_the_fixed_pytest_argv_not_a_shell():
+    args = build_evaluation_args()
+    assert args[-len(PYTEST_COMMAND):] == list(PYTEST_COMMAND)
+    assert "sh" not in args
+    assert "bash" not in args
+    assert "-c" not in args
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    [
+        "--privileged",
+        "--pid=host",
+        "--network=host",
+        "--ipc=host",
+        "--uts=host",
+        "--cap-add",
+    ],
+)
+def test_evaluation_container_never_carries_dangerous_flags(forbidden):
+    assert forbidden not in joined(build_evaluation_args())

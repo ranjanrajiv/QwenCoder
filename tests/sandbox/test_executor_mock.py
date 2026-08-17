@@ -101,6 +101,9 @@ class FakeContainerRuntime:
         self.removed: list[str] = []
         self.containers: list[FakeContainer] = []
         self.pulled: list[str] = []
+        # Snapshotted inside start(), since the workspace is deleted before execute()
+        # returns — checking directory contents afterward would always see nothing.
+        self.workspace_files_at_start: list[list[str]] = []
 
     def check_available(self) -> None:
         if self._available_error is not None:
@@ -115,6 +118,7 @@ class FakeContainerRuntime:
     def start(self, spec: ContainerSpec) -> FakeContainer:
         if self._start_error is not None:
             raise self._start_error
+        self.workspace_files_at_start.append(sorted(p.name for p in spec.workspace_path.iterdir()))
         self.started_specs.append(spec)
         container = FakeContainer(
             spec.name,
@@ -398,3 +402,57 @@ def test_per_execution_timeout_overrides_the_configured_default():
     executor, runtime = make_executor(stdout=b"ok\n")
     result = executor.execute("print('ok')", timeout_seconds=30)
     assert result.status == "success"
+
+
+# ------------------------------------------------------------------------- execute_job
+
+
+def test_execute_job_writes_every_file_into_the_workspace():
+    # Stage 6's evaluation job needs multiple files, not just candidate.py.
+    executor, runtime = make_executor(stdout=b"ok\n")
+    executor.execute_job(
+        files={
+            "candidate.py": "print('a')\n",
+            "test_candidate.py": "def test_x(): pass\n",
+            "conftest.py": "# plugin\n",
+        },
+        command=("python", "-m", "pytest", "-q", "test_candidate.py"),
+    )
+    assert runtime.workspace_files_at_start[0] == ["candidate.py", "conftest.py", "test_candidate.py"]
+
+
+def test_execute_job_uses_the_supplied_command_not_the_default():
+    executor, runtime = make_executor(stdout=b"ok\n")
+    command = ("python", "-m", "pytest", "-q", "test_candidate.py")
+    executor.execute_job(files={"candidate.py": "pass\n"}, command=command)
+    args = runtime.started_specs[0].to_docker_args()
+    assert args[-5:] == list(command)
+
+
+def test_execute_is_equivalent_to_execute_job_with_one_file():
+    executor, runtime = make_executor(stdout=b"ok\n")
+    executor.execute("print('ok')")
+    spec = runtime.started_specs[0]
+    assert spec.command == ("python", "/workspace/candidate.py")
+
+
+def test_execute_job_shares_cleanup_with_execute(tmp_path):
+    # The whole point of building execute() on top of execute_job(): identical
+    # unconditional-cleanup guarantees for both.
+    config = SandboxConfig(timeout_seconds=1, workspace_root=str(tmp_path))
+    runtime = FakeContainerRuntime(stdout=b"ok\n")
+    executor = SandboxExecutor(config=config, runtime=runtime)
+    executor.execute_job(
+        files={"candidate.py": "pass\n", "extra.py": "pass\n"},
+        command=("python", "/workspace/candidate.py"),
+    )
+    assert list(tmp_path.iterdir()) == []
+    assert len(runtime.removed) == 1
+
+
+def test_execute_job_classifies_a_test_failure_like_any_other_run():
+    executor, runtime = make_executor(stderr=RUNTIME_STDERR, exit_code=1)
+    result = executor.execute_job(
+        files={"candidate.py": "pass\n"}, command=("python", "/workspace/candidate.py")
+    )
+    assert result.status == "runtime_error"

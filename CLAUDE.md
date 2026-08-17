@@ -26,6 +26,15 @@ validate the problem dataset. That execution is confined to
 can be routed to a sandboxed executor instead. Never pass model-generated code to the
 in-process executor.
 
+**Generated tests are untrusted-adjacent, not trusted.** `python_dpo.evaluation` builds a
+pytest suite (`test_candidate.py`, `conftest.py`) around each candidate's own code and
+runs both together — the test file itself never contains candidate-derived text (its
+literals come from the problem's already-validated `TestCase` data via `repr()`, never
+from the candidate), but it executes *in the same process* as untrusted candidate code,
+so the whole bundle is confined to the sandbox exactly like a bare candidate. Never run a
+generated test file, or any file paired with candidate code, outside
+`python_dpo.evaluation.pytest_runner.PytestRunner` / the Stage 5 sandbox.
+
 Generated candidates are inspected with `ast.parse` only. Building a syntax tree does not
 import, evaluate, or run anything, which is why `python_dpo.generation.validation` is
 allowed to touch untrusted code while nothing else is. `InProcessReferenceExecutor`

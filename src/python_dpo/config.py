@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .evaluation.config import EvaluationConfig
+from .evaluation.errors import EvaluationConfigError
 from .generation.strategies import STRATEGIES, StrategyError, instruction_for
 from .models.base import GenerationConfig, ModelConfig, ModelError
 from .sandbox.config import SandboxConfig
@@ -139,6 +141,19 @@ def _parse_sandbox(raw: Any) -> SandboxConfig:
         raise ConfigError(f"config.yaml: {exc}") from exc
 
 
+def _parse_evaluation(raw: Any) -> EvaluationConfig:
+    """Parse the optional `evaluation:` section, defaulting when it is absent.
+
+    `evaluation/` raises its own EvaluationConfigError rather than ConfigError, so that
+    package never has to import this one; translating it here keeps the dependency
+    one-way, exactly as with SandboxConfigError above.
+    """
+    try:
+        return EvaluationConfig.from_mapping(raw)
+    except EvaluationConfigError as exc:
+        raise ConfigError(f"config.yaml: {exc}") from exc
+
+
 def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
     if not isinstance(raw, dict):
         raise ConfigError("config.yaml: missing required key 'generation'")
@@ -207,6 +222,7 @@ class Config:
     model: ModelConfig
     generation: GenerationSettings
     sandbox: SandboxConfig
+    evaluation: EvaluationConfig
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -262,6 +278,7 @@ class Config:
             raw.get("generation"), raw.get("generation_strategies")
         )
         sandbox = _parse_sandbox(raw.get("sandbox"))
+        evaluation = _parse_evaluation(raw.get("evaluation"))
 
         return cls(
             project_name=project_name,
@@ -271,4 +288,5 @@ class Config:
             model=model,
             generation=generation,
             sandbox=sandbox,
+            evaluation=evaluation,
         )

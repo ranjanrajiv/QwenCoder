@@ -392,3 +392,100 @@ def test_sandbox_run_reports_a_missing_file_without_touching_docker():
 def test_example_file_exists_for_the_documented_smoke_command():
     # The README and spec section 87 both tell users to run this exact file.
     assert (PROJECT_ROOT / "examples" / "hello.py").is_file()
+
+
+# ------------------------------------------------------------------------------ evaluate
+
+
+def test_evaluate_is_not_a_placeholder():
+    assert "evaluate" not in _PLACEHOLDER_STAGES
+
+
+def test_evaluate_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        ["evaluate", "candidate", "--run-id", "run_x", "--candidate-id", "p001_c001"]
+    )
+    assert args.command == "evaluate" and args.evaluate_command == "candidate"
+    assert args.run_id == "run_x" and args.candidate_id == "p001_c001"
+    assert args.force is False
+    assert callable(args.func)
+
+    args = parser.parse_args(
+        ["evaluate", "run", "--run-id", "run_x", "--problem-id", "p001", "--limit", "3", "--force"]
+    )
+    assert args.command == "evaluate" and args.evaluate_command == "run"
+    assert args.problem_id == "p001" and args.limit == 3 and args.force is True
+    assert callable(args.func)
+
+
+def test_evaluate_candidate_requires_run_id_and_candidate_id():
+    result = _run_module("evaluate", "candidate")
+    assert result.returncode == 2
+    assert "--run-id" in result.stderr
+
+
+def test_bare_evaluate_prints_help_and_returns_nonzero():
+    result = _run_module("evaluate")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_evaluate_candidate_reports_an_unknown_run_id():
+    # Must fail before any Docker work begins, so this stays a fast, Docker-free check.
+    result = _run_module(
+        "evaluate", "candidate", "--run-id", "run_does_not_exist", "--candidate-id", "p001_c001"
+    )
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
+def test_evaluate_run_reports_an_unknown_run_id():
+    result = _run_module("evaluate", "run", "--run-id", "run_does_not_exist")
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
+# ---------------------------------------------------------------------------- evaluations
+
+
+def test_evaluations_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["evaluations", "list", "eval_x"])
+    assert args.command == "evaluations" and args.evaluations_command == "list"
+    assert args.eval_id == "eval_x"
+    assert callable(args.func)
+
+    args = parser.parse_args(["evaluations", "show", "eval_x", "p001_c001"])
+    assert args.eval_id == "eval_x" and args.candidate_id == "p001_c001"
+    assert callable(args.func)
+
+    args = parser.parse_args(["evaluations", "stats", "eval_x"])
+    assert args.eval_id == "eval_x"
+    assert callable(args.func)
+
+
+def test_bare_evaluations_prints_help_and_returns_nonzero():
+    result = _run_module("evaluations")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_evaluations_list_reports_an_unknown_eval_id():
+    result = _run_module("evaluations", "list", "eval_does_not_exist")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr
+
+
+def test_evaluations_show_reports_an_unknown_eval_id():
+    result = _run_module("evaluations", "show", "eval_does_not_exist", "p001_c001")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr
+
+
+def test_evaluations_stats_reports_an_unknown_eval_id():
+    result = _run_module("evaluations", "stats", "eval_does_not_exist")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr

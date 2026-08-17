@@ -117,6 +117,36 @@ def test_default_workspace_lives_outside_the_project_tree():
         assert PROJECT_ROOT not in workspace.path.parents
 
 
+def test_write_file_supports_multiple_files(tmp_path):
+    # Stage 6's evaluation job needs candidate.py + test_candidate.py + conftest.py in
+    # one workspace.
+    with SandboxWorkspace(root=tmp_path) as workspace:
+        workspace.write_file("candidate.py", "print('a')\n")
+        workspace.write_file("test_candidate.py", "def test_x(): pass\n")
+        workspace.write_file("conftest.py", "# plugin\n")
+        names = sorted(p.name for p in workspace.path.iterdir())
+    assert names == ["candidate.py", "conftest.py", "test_candidate.py"]
+
+
+def test_write_file_rejects_a_path_with_a_directory_separator(tmp_path):
+    with SandboxWorkspace(root=tmp_path) as workspace:
+        with pytest.raises(WorkspaceError, match="safe bare filename"):
+            workspace.write_file("subdir/evil.py", "x = 1\n")
+
+
+def test_write_file_rejects_parent_directory_traversal(tmp_path):
+    with SandboxWorkspace(root=tmp_path) as workspace:
+        with pytest.raises(WorkspaceError, match="safe bare filename"):
+            workspace.write_file("../escape.py", "x = 1\n")
+
+
+def test_write_candidate_is_a_thin_wrapper_over_write_file(tmp_path):
+    with SandboxWorkspace(root=tmp_path) as workspace:
+        path_a = workspace.write_candidate(CODE)
+        path_b = workspace.write_file(CANDIDATE_FILENAME, CODE)
+    assert path_a == path_b
+
+
 def test_workspace_never_executes_anything(tmp_path):
     # Spec section 41: the workspace writes files and nothing else. Code that would raise
     # if executed must be written out untouched.

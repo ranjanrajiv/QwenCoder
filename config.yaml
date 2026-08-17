@@ -81,3 +81,16 @@ sandbox:
   workspace_root: null
   # Whether the health check may pull a missing image.
   auto_pull: true
+
+# The candidate test executor (Stage 6). Every isolation setting above — network mode,
+# user, capabilities, resource limits — is inherited unchanged from `sandbox:` when
+# building the evaluation container; only the image and timeout budget differ here.
+evaluation:
+  # Built locally via `docker build -t python-dpo-evaluator:1.0 docker/evaluator/`, not
+  # pulled from a registry — the container has no network at evaluation time.
+  image: "python-dpo-evaluator:1.0"
+  # pytest startup and test collection need more headroom than sandbox.timeout_seconds.
+  timeout_seconds: 30
+  startup_grace_seconds: 10
+  # No registry to pull a locally-built image from, unlike sandbox's stock image.
+  auto_pull: false

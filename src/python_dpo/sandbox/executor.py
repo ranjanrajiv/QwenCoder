@@ -71,7 +71,34 @@ class SandboxExecutor:
         run_id: str | None = None,
         timeout_seconds: int | None = None,
     ) -> ExecutionResult:
-        """Run ``code`` in the sandbox and report what happened.
+        """Run ``code`` as ``candidate.py`` in the sandbox and report what happened.
+
+        A thin wrapper over :meth:`execute_job` for the single-file case.
+        """
+        return self.execute_job(
+            files={CANDIDATE_FILENAME: code},
+            command=EXECUTION_COMMAND,
+            job_id=job_id,
+            run_id=run_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def execute_job(
+        self,
+        *,
+        files: dict[str, str],
+        command: tuple[str, ...],
+        job_id: str | None = None,
+        run_id: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> ExecutionResult:
+        """Write ``files`` into an isolated workspace and run ``command`` in the sandbox.
+
+        The general form :meth:`execute` is built on: any number of files (e.g. Stage 6's
+        ``candidate.py`` + ``test_candidate.py`` + ``conftest.py``) and any fixed command —
+        never a shell string. Every isolation guarantee, the bounded-output handling, and
+        the unconditional cleanup are identical to the single-file case, since this is the
+        one method that actually does the work.
 
         Never raises for a candidate-caused failure — a crash, a timeout, or a resource
         violation is a *result*, not an exception. Infrastructure problems are likewise
@@ -87,10 +114,12 @@ class SandboxExecutor:
 
         try:
             with SandboxWorkspace(job_id=job_id, root=config.workspace_root) as workspace:
-                workspace.write_candidate(code)
+                for filename, content in files.items():
+                    workspace.write_file(filename, content)
                 return self._run(
                     workspace=workspace,
                     name=name,
+                    command=command,
                     timeout=timeout,
                     started=started,
                     config_record=config_record,
@@ -112,6 +141,7 @@ class SandboxExecutor:
         *,
         workspace: SandboxWorkspace,
         name: str,
+        command: tuple[str, ...],
         timeout: int,
         started: float,
         config_record: dict[str, Any],
@@ -120,7 +150,7 @@ class SandboxExecutor:
         spec = ContainerSpec(
             name=name,
             image=config.image_reference,
-            command=EXECUTION_COMMAND,
+            command=command,
             workspace_path=workspace.path,
             config=config,
             environment=dict(BASE_ENVIRONMENT),
@@ -265,3 +295,4 @@ def _elapsed_ms(started: float) -> int:
 
 
 __all__ = ["EXECUTION_COMMAND", "SandboxExecutor"]
+
