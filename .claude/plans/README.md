@@ -34,3 +34,23 @@ their JSONL text derived via `inspect.getsource()`, and the validation summary
 printed to stdout from the CLI layer), plus the semantics chosen for each of the ten
 problems where the spec required an explicit ruling on ties, ordering, and
 invalid-input behavior. **Approved but not yet implemented.**
+
+### `04_candidate_persistence_plan.md`
+
+The implementation plan for Stage 4 — candidate persistence, runs and reproducibility —
+derived from
+[`.claude/specs/04_candidate_presistence.md`](../specs/04_candidate_presistence.md) and
+confirmed with the user before implementation started. It turns Stage 3's flat
+append-only `candidates.jsonl` into per-run artifact directories
+(`data/candidates/runs/<run_id>/` with a manifest, candidates, failures, statistics and
+a prompts artifact), adds SHA-256 hashes for code, prompt and raw output, a
+`schema_version` on candidate records, atomic/durable persistence with torn-tail
+detection, a retry policy for infrastructure failures, statistics reconstructable from
+disk, a run integrity validator, and the `runs` / `candidates` CLI command groups. It
+records the three approved design decisions (`generate` always mints a new run with
+`--resume RUN_ID` as the only resume path; the existing 50-record flat file is migrated
+into a run directory by an explicit `candidates migrate` command rather than discarded;
+run IDs adopt the spec's `run_YYYYMMDD_HHMMSS_xxxx` format), and lists the deviations to
+flag in the final report — chiefly the run-scoped repository API, run-scoped duplicate
+detection, and the decision not to persist tracebacks. **Approved but not yet
+implemented.**
