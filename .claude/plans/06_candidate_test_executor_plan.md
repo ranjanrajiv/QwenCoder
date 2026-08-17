@@ -8,8 +8,7 @@ across all 10 problems, and nothing in the repository knows whether a single one
 *works*. The sandbox can answer "did this program run safely?" — it cannot answer "did it
 solve the problem?"
 
-`.claude/specs/06_candidate_test_executor.py` (note: the spec ships with a `.py` extension
-despite being Markdown) asks for the layer that closes that gap: take a persisted
+`.claude/specs/06_candidate_test_executor.md` asks for the layer that closes that gap: take a persisted
 candidate, generate a deterministic pytest suite from its problem's declared test cases,
 run both inside the Stage 5 sandbox, and persist structured, per-test evidence of what
 happened.
@@ -405,8 +404,6 @@ Stage 7 (ranking / correctness classification) without explicit approval** (§90
 
 ## Deviations to record in the report
 
-- **The spec file is `06_candidate_test_executor.py`**, Markdown content with a `.py`
-  extension. Left as-is unless you want it renamed.
 - **`TestCase.input` is a kwargs mapping**, so generated calls are `fn(**{...})` rather than
   the positional `fn([...])` in §10/§13's examples. The dataset's shape wins.
 - **§18's `approx` comparison mode is not implemented.** No problem has a float expected

@@ -79,9 +79,9 @@ implementation report.
 ### `06_candidate_test_executor_plan.md`
 
 The implementation plan for Stage 6 — the candidate test executor — derived from
-[`.claude/specs/06_candidate_test_executor.py`](../specs/06_candidate_test_executor.py)
-(the spec ships with a `.py` extension despite being Markdown) and confirmed with the user
-before implementation started. It is what the Stage 5 sandbox was built for: a new
+[`.claude/specs/06_candidate_test_executor.md`](../specs/06_candidate_test_executor.md)
+and confirmed with the user before implementation started. It is what the Stage 5 sandbox
+was built for: a new
 `src/python_dpo/evaluation/` package that turns a problem's declared test cases into a
 deterministic pytest suite, runs it against a persisted candidate inside the sandbox, and
 persists per-candidate and per-test execution evidence — counts, statuses, durations,
