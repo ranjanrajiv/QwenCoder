@@ -72,5 +72,28 @@ isolation posture is one auditable list; stock `python:3.12-slim` with `--user
 `pytest -q` keeps its zero-skip, Docker-free property), and lists the deviations to flag
 in the final report — chiefly the streaming-oriented `ContainerRuntime` shape, workspaces
 in system temp rather than `data/sandbox/jobs/`, and the hardening added beyond the spec's
-literal text (`--memory-swap`, `--security-opt no-new-privileges`). **Approved but not yet
-implemented.**
+literal text (`--memory-swap`, `--security-opt no-new-privileges`). This plan has been
+fully executed — see [`05_DOCKER_SANDBOX.md`](../../05_DOCKER_SANDBOX.md) for the
+implementation report.
+
+### `06_candidate_test_executor_plan.md`
+
+The implementation plan for Stage 6 — the candidate test executor — derived from
+[`.claude/specs/06_candidate_test_executor.py`](../specs/06_candidate_test_executor.py)
+(the spec ships with a `.py` extension despite being Markdown) and confirmed with the user
+before implementation started. It is what the Stage 5 sandbox was built for: a new
+`src/python_dpo/evaluation/` package that turns a problem's declared test cases into a
+deterministic pytest suite, runs it against a persisted candidate inside the sandbox, and
+persists per-candidate and per-test execution evidence — counts, statuses, durations,
+error types — without ever deciding `correct`/`incorrect` or producing preference pairs.
+
+It records the three approved design decisions (results returned as nonce-prefixed JSON
+lines from a generated `conftest.py`, so no dependency and no report-file extraction from
+a read-only container; resume-by-default per the spec, deliberately diverging from Stage
+4's explicit-resume `generate`; and verification evaluating all 50 real Qwen candidates
+with the artifacts committed). It also captures the dataset findings that drive the
+generator — `TestCase.input` is a kwargs mapping rather than the positional list the spec's
+examples imply, p010 is `async`, p005/p006/p009 use `expected_exception`, p009 returns a
+generator, and no float expected values exist — plus the reference-solution self-check that
+proves the generator's comparison semantics still match the ones the dataset was validated
+under. **Approved but not yet implemented.**
