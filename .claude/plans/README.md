@@ -52,5 +52,25 @@ records the three approved design decisions (`generate` always mints a new run w
 into a run directory by an explicit `candidates migrate` command rather than discarded;
 run IDs adopt the spec's `run_YYYYMMDD_HHMMSS_xxxx` format), and lists the deviations to
 flag in the final report — chiefly the run-scoped repository API, run-scoped duplicate
-detection, and the decision not to persist tracebacks. **Approved but not yet
+detection, and the decision not to persist tracebacks. This plan has been fully executed —
+see [`04_CANDIDATE_PERSISTENCE.md`](../../04_CANDIDATE_PERSISTENCE.md) for the
+implementation report.
+
+### `05_docker_sandbox.md`
+
+The implementation plan for Stage 5 — the isolated Docker sandbox — derived from
+[`.claude/specs/05_docker_sandbox.md`](../specs/05_docker_sandbox.md) and confirmed with
+the user before implementation started. It builds the execution boundary every previous
+stage deliberately stopped short of: a new `src/python_dpo/sandbox/` package whose
+`SandboxExecutor` runs arbitrary Python inside a locked-down container (no network, no
+host filesystem, non-root, capabilities dropped, with CPU/memory/PID/output/time limits)
+and returns a structured `ExecutionResult` that reports *what happened* without ever
+judging correctness. It records the three approved design decisions (Docker CLI subprocess
+with a fixed argv rather than the Python SDK, so zero dependencies are added and the whole
+isolation posture is one auditable list; stock `python:3.12-slim` with `--user
+65534:65534` rather than a custom Dockerfile; integration tests deselected by default so
+`pytest -q` keeps its zero-skip, Docker-free property), and lists the deviations to flag
+in the final report — chiefly the streaming-oriented `ContainerRuntime` shape, workspaces
+in system temp rather than `data/sandbox/jobs/`, and the hardening added beyond the spec's
+literal text (`--memory-swap`, `--security-opt no-new-privileges`). **Approved but not yet
 implemented.**
