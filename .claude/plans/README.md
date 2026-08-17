@@ -96,4 +96,30 @@ generator — `TestCase.input` is a kwargs mapping rather than the positional li
 examples imply, p010 is `async`, p005/p006/p009 use `expected_exception`, p009 returns a
 generator, and no float expected values exist — plus the reference-solution self-check that
 proves the generator's comparison semantics still match the ones the dataset was validated
-under. **Approved but not yet implemented.**
+under. This plan has been fully executed — see
+[`06_CANDIDATE_TEST_EXECUTOR.md`](../../06_CANDIDATE_TEST_EXECUTOR.md) for the
+implementation report.
+
+### `07_candidate_ranking_plan.md`
+
+The implementation plan for Stage 7 — candidate evaluation, scoring and ranking — derived
+from [`.claude/specs/07_candidate_ranking.md`](../specs/07_candidate_ranking.md) and
+confirmed with the user before implementation started. It turns Stage 6's objective
+execution evidence into a judgement: a new `src/python_dpo/ranking/` package that
+classifies each candidate `correct`/`incorrect`/`indeterminate`, scores it as
+`tests_passed / tests_total`, ranks candidates independently **per problem** with
+competition ranking and explicit tie groups, and exposes pairwise comparisons with score
+margins — while producing no `chosen`/`rejected` labels, no DPO pairs, and calling no LLM
+judge.
+
+It records the four approved design decisions (assessments join back to the generation run
+so `code_sha256`/`duplicate_of` reach Step 8; `comparisons.jsonl` is persisted; a candidate
+with no evaluation result becomes an `indeterminate` assessment with an explicit reason
+rather than being skipped; and the run-directory plumbing is mirrored a third time rather
+than extracted into a shared base). Its most consequential finding is measured from the
+committed evaluation run: **6 of the 10 problems yield no ordering at all** — five have all
+five candidates fully passing and one has all five failing identically — so 78 of the 100
+candidate pairs are ties, and 31 of 50 candidates are duplicate code. Tie handling is
+therefore the majority behaviour rather than an edge case, and the `indeterminate` path has
+zero real coverage and must be driven by synthetic fixtures. The plan carries exact
+expected acceptance numbers for the real run. **Approved but not yet implemented.**
