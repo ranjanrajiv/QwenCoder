@@ -8,6 +8,8 @@ import yaml
 
 from .generation.strategies import STRATEGIES, StrategyError, instruction_for
 from .models.base import GenerationConfig, ModelConfig, ModelError
+from .sandbox.config import SandboxConfig
+from .sandbox.errors import SandboxConfigError
 
 _REQUIRED_PATH_KEYS = (
     "raw_data",
@@ -124,6 +126,19 @@ def _parse_model(raw: Any) -> ModelConfig:
         raise ConfigError(f"config.yaml: {exc}") from exc
 
 
+def _parse_sandbox(raw: Any) -> SandboxConfig:
+    """Parse the optional `sandbox:` section, defaulting when it is absent.
+
+    `sandbox/` raises its own SandboxConfigError rather than ConfigError, so that package
+    never has to import this one; translating it here keeps the dependency one-way, exactly
+    as with ModelError above.
+    """
+    try:
+        return SandboxConfig.from_mapping(raw)
+    except SandboxConfigError as exc:
+        raise ConfigError(f"config.yaml: {exc}") from exc
+
+
 def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
     if not isinstance(raw, dict):
         raise ConfigError("config.yaml: missing required key 'generation'")
@@ -191,6 +206,7 @@ class Config:
     project_root: Path
     model: ModelConfig
     generation: GenerationSettings
+    sandbox: SandboxConfig
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -245,6 +261,7 @@ class Config:
         generation = _parse_generation(
             raw.get("generation"), raw.get("generation_strategies")
         )
+        sandbox = _parse_sandbox(raw.get("sandbox"))
 
         return cls(
             project_name=project_name,
@@ -253,4 +270,5 @@ class Config:
             project_root=project_root,
             model=model,
             generation=generation,
+            sandbox=sandbox,
         )

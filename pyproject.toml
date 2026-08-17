@@ -36,4 +36,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra"
+# Integration tests need a running Docker daemon, so they are deselected by default:
+# `pytest -q` stays offline, dependency-free, and reports zero skips on any machine.
+# Run the sandbox suite explicitly with `pytest -q -m integration` (a -m on the command
+# line overrides the one here), or everything with `pytest -q -m ""`.
+addopts = "-ra -m 'not integration'"
+markers = [
+    "integration: requires a running Docker daemon",
+]

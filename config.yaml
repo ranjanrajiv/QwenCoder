@@ -46,3 +46,38 @@ generation_strategies:
   - edge_case_focused
   - alternative
   - optimized
+
+# The isolated Docker sandbox used to execute untrusted generated code. These are the
+# limits enforced by the container runtime itself, not by application-level checks.
+# Never put credentials here — the container receives no host environment at all.
+sandbox:
+  # Pin the version. A ':latest' tag is rejected: it can change underneath us and would
+  # silently change what every recorded execution result means.
+  image: "python:3.12-slim"
+  # Optional stronger pin. When set, the sandbox runs image@sha256:... instead of the tag.
+  image_digest: null
+  # Candidate containers must have no network access, so 'none' is the only accepted
+  # value. The key exists to make the guarantee explicit rather than implicit.
+  network_mode: "none"
+  cpus: 1.0
+  memory: "512m"
+  pids_limit: 64
+  # How long the candidate's own program may run.
+  timeout_seconds: 5
+  # Extra allowance for container creation and interpreter startup, which cost ~2s even on
+  # a warm image and are not the candidate's doing. The total wait is the sum of the two;
+  # raise this on a slow or heavily loaded machine.
+  startup_grace_seconds: 10
+  max_output_bytes: 1000000
+  read_only_root: true
+  run_as_non_root: true
+  drop_capabilities: true
+  # Numeric UID:GID used when run_as_non_root. 65534 is nobody:nogroup, which already
+  # exists in the stock image, so no custom Dockerfile is needed.
+  user: "65534:65534"
+  # Writable tmpfs mounted at /tmp under the read-only root filesystem.
+  tmpfs_size: "64m"
+  # Where per-execution job directories are created. null uses the system temp directory.
+  workspace_root: null
+  # Whether the health check may pull a missing image.
+  auto_pull: true

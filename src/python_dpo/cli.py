@@ -47,6 +47,11 @@ from .runs import (
     validate_run,
 )
 from .runs.repository import MANIFEST_FILENAME
+from .sandbox import (
+    SandboxExecutor,
+    check_sandbox_health,
+    format_health_report,
+)
 
 logger = logging.getLogger("python_dpo.cli")
 
@@ -791,6 +796,111 @@ def _add_candidates_parser(subparsers: argparse._SubParsersAction) -> None:
     migrate_parser.set_defaults(func=_cmd_candidates_migrate)
 
 
+# ------------------------------------------------------------------------------- sandbox
+
+
+def _cmd_sandbox_health(args: argparse.Namespace, config: Config) -> int:
+    """Verify the whole Docker execution path before anything depends on it (spec 05 §54)."""
+    report = check_sandbox_health(config.sandbox)
+    sys.stdout.write(format_health_report(report))
+    return 0 if report.passed else 1
+
+
+def _cmd_sandbox_run(args: argparse.Namespace, config: Config) -> int:
+    """Execute a file inside the sandbox (spec 05 §56).
+
+    The host file is **copied** into an isolated workspace and executed in a container; the
+    path the user supplied is never mounted and never run on the host (spec 05 §57).
+    """
+    source = Path(args.file)
+    if not source.is_file():
+        logger.error("no such file: %s", source)
+        return 1
+
+    try:
+        code = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.error("could not read %s: %s", source, exc)
+        return 1
+
+    executor = SandboxExecutor(config=config.sandbox)
+    result = executor.execute(code, timeout_seconds=args.timeout)
+
+    lines = [
+        f"status: {result.status}",
+        f"exit code: {result.exit_code}",
+        f"duration: {result.duration_ms} ms",
+    ]
+    if result.timed_out:
+        lines.append(f"timed out after {args.timeout or config.sandbox.timeout_seconds}s")
+    if result.memory_limit_exceeded:
+        lines.append("memory limit exceeded")
+    if result.truncated:
+        lines.append(
+            "output truncated at "
+            f"{config.sandbox.max_output_bytes} bytes "
+            f"(stdout={result.stdout_truncated}, stderr={result.stderr_truncated})"
+        )
+    if result.signal is not None:
+        lines.append(f"terminated by signal {result.signal}")
+    if result.error_message:
+        lines.append(f"error: {result.error_message}")
+
+    if result.stdout:
+        lines += ["", "--- stdout ---", result.stdout.rstrip("\n")]
+    if result.stderr and (args.show_stderr or result.status != "success"):
+        lines += ["", "--- stderr ---", result.stderr.rstrip("\n")]
+
+    sys.stdout.write("\n".join(lines) + "\n")
+
+    # A candidate that crashed still means the sandbox worked; only an infrastructure
+    # failure is a failure of this command (spec 05 §81).
+    return 1 if result.is_infrastructure_failure else 0
+
+
+def _add_sandbox_parser(subparsers: argparse._SubParsersAction) -> None:
+    sandbox_parser = subparsers.add_parser(
+        "sandbox",
+        help="Check and use the isolated Docker execution sandbox.",
+        description=(
+            "Verify the Docker sandbox and run Python inside it. Code executes only inside "
+            "an isolated container with no network, no host filesystem access, a non-root "
+            "user, and CPU/memory/PID/output/time limits. Nothing runs on the host."
+        ),
+    )
+    sandbox_parser.set_defaults(func=_make_help_handler(sandbox_parser))
+
+    sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_command")
+
+    health_parser = sandbox_subparsers.add_parser(
+        "health", help="Verify Docker, the sandbox image, and container execution."
+    )
+    health_parser.set_defaults(func=_cmd_sandbox_health)
+
+    run_parser = sandbox_subparsers.add_parser(
+        "run",
+        help="Execute a Python file inside the sandbox (development aid).",
+        description=(
+            "Copy a Python file into an isolated temporary workspace and execute it in a "
+            "sandboxed container. The supplied path is never mounted into the container "
+            "and is never executed on the host."
+        ),
+    )
+    run_parser.add_argument("--file", required=True, help="Path to the Python file to execute.")
+    run_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Override sandbox.timeout_seconds for this execution only.",
+    )
+    run_parser.add_argument(
+        "--show-stderr",
+        action="store_true",
+        help="Print stderr even when the program exits successfully.",
+    )
+    run_parser.set_defaults(func=_cmd_sandbox_run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python_dpo",
@@ -810,6 +920,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_generate_parser(subparsers)
     _add_runs_parser(subparsers)
     _add_candidates_parser(subparsers)
+    _add_sandbox_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

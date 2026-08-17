@@ -1,7 +1,20 @@
 # tests/
 
-The project's test suite. Everything here is offline and CPU-only — no network access,
-no GPU, no Docker, no Qwen model — and nothing is skipped.
+The project's test suite. The default run (`pytest -q`) is offline and CPU-only — no
+network access, no GPU, no Docker, no Qwen model — and nothing is skipped.
+
+Docker sandbox tests are marked `@pytest.mark.integration` and **deselected by default**
+(`addopts = "-ra -m 'not integration'"` in `pyproject.toml`), which is what preserves the
+zero-skip property on every machine. Run them explicitly:
+
+```bash
+pytest -q                  # the offline suite
+pytest -q -m integration   # the Docker sandbox security suite
+pytest -q -m ""            # everything
+```
+
+They deliberately **fail** rather than skip when Docker is unreachable: they were asked for
+explicitly, so silently passing an unrun security suite would be the worst outcome.
 
 ## Files
 
@@ -216,6 +229,62 @@ The end-to-end generation tests (spec 03 §46, §47; spec 04 §42, §49, §50), 
   `(problem_id, generation_index)`, differing only in `run_id`. Real-model reproducibility
   is explicitly not claimed.
 
+### `sandbox/`
+
+The Stage 5 sandbox suite, split by what it needs.
+
+**No Docker required:**
+
+- **`test_config.py`** — defaults; every validation rule; unknown keys rejected;
+  `:latest` and unpinned images rejected; `network_mode` values other than `none` rejected;
+  UID 0 and named users rejected; digest pinning; the spec §52 environment record; and that
+  `config.py` wraps `SandboxConfigError` as `ConfigError` at the package boundary.
+- **`test_result.py`** — `ExecutionResult` validation and dict round-trip; the closed status
+  set; `timed_out` must agree with `status`; candidate vs infrastructure outcomes. Then
+  `classify()` driven as a pure function across every branch, including the case that
+  motivates the design: a program that does `raise SyntaxError(...)` compiled fine and must
+  be reported as a **runtime** error, which is distinguishable because CPython prints
+  `Traceback (most recent call last):` for runtime exceptions and never for compile
+  failures.
+- **`test_workspace.py`** — `candidate.py` written byte-for-byte (compared as bytes, since
+  text-mode newline translation would silently rewrite `\r\n`); directory and file modes
+  readable by the container's non-root UID; cleanup on success, on exception, and when
+  called twice; the workspace holds only the candidate file and lives outside the project
+  tree.
+- **`test_sandbox_security.py`** — the argv-level guard, and the most important test in the
+  stage. Asserts both halves of the contract: every mandatory isolation flag is present
+  (`--network none`, `--read-only`, `--user`, `--cap-drop ALL`, `--pids-limit`, `--memory`,
+  `--memory-swap`, `--cpus`, a `:ro` workspace mount, `--workdir`), and the dangerous ones
+  never appear (`--privileged`, `--pid=host`, any `docker.sock` mount, the project
+  directory, any host env var beyond the three passed deliberately). Plus source-level
+  scans proving the package contains no `shell=True`, no `exec`/`eval`/`os.system`, and no
+  `os.environ` pass-through. Same philosophy as `test_no_heavy_imports.py`: a rule one
+  careless edit away from being broken is asserted, not assumed.
+- **`test_executor_mock.py`** — a `FakeContainerRuntime` drives the executor through
+  success, runtime error, syntax error, timeout (asserting the container is killed), output
+  flood (truncated, terminated, and capped in memory), OOM → `resource_exceeded`, and
+  Docker-unavailable → `infrastructure_error` returned rather than raised. Cleanup is
+  verified on **every** path — container removed and workspace deleted even when the
+  runtime fails mid-execution. One test pins the threading rule directly: the bounded
+  reader must hold no container callback, because killing from a reader thread while the
+  main thread waits on the same process hangs and leaks the container.
+
+**Docker required (`-m integration`):**
+
+- **`test_sandbox_integration.py`** — all ten mandatory security checks against a live
+  daemon: normal execution, infinite loop → `timeout`, outbound connections, DNS, HTTP,
+  non-root UID, host environment isolation, `/var/run/docker.sock` absent, runtime error,
+  syntax error, output flood. Plus memory and PID limits, read-only root and workspace,
+  the writable tmpfs, filesystem isolation against a host marker file, container ID
+  recording, and the health check. An autouse fixture asserts after **every** test that no
+  sandbox container survived it.
+
+  Two tests are worth singling out: `test_candidate_code_never_runs_on_the_host` executes a
+  candidate that would create a host file if it escaped, and asserts the host is untouched;
+  `test_container_environment_is_only_the_image_plus_our_three_variables` compares the
+  container's environment against the bare image's, which is precise where a keyword scan
+  for credential-shaped names is not (the stock image legitimately defines `GPG_KEY`).
+
 ### `test_no_heavy_imports.py`
 
 A subprocess imports every `python_dpo` module and asserts `torch`, `transformers`, and
@@ -225,4 +294,5 @@ This test only means something when the `[model]` extra is actually installed �
 precisely when the rule could regress.
 
 No test is skipped, and none loads the real Qwen model — `pytest -q` must fully pass with
-zero skips, offline, on CPU.
+zero skips, offline, on CPU. The Docker suite is opt-in via `-m integration` and is where
+the sandbox's security guarantees are demonstrated against a real container.

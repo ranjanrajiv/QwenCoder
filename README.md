@@ -3,13 +3,14 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 4 — Candidate Persistence, Runs and Reproducibility.** The
-foundation (packaging, CLI, logging, typed configuration), the ground-truth layer (10
-curated Python problems with trusted reference solutions and executable tests), candidate
-generation with a Qwen Coder model, and a reliable per-run artifact store (manifests,
-SHA-256 hashes, atomic persistence, resume, retry, integrity validation) are in place. No
-sandbox, evaluation, ranking, preference-pair generation, or training code has been
-implemented yet — and **no generated code is ever executed**.
+**Current status: Stage 5 — Isolated Docker Sandbox.** The foundation (packaging, CLI,
+logging, typed configuration), the ground-truth layer (10 curated Python problems with
+trusted reference solutions and executable tests), candidate generation with a Qwen Coder
+model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic persistence,
+resume, retry, integrity validation), and an isolated Docker execution sandbox are in
+place. No evaluation, ranking, preference-pair generation, or training code has been
+implemented yet — and **generated code is executed only inside the sandbox, never on the
+host**.
 
 ## Planned pipeline
 
@@ -33,13 +34,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first four stages are implemented. Everything from the Docker sandbox onward is
-still a placeholder that documents the intended shape of the pipeline.
+The first five stages are implemented. Everything from pytest evaluation onward is still
+a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Four have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Five have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -48,9 +49,10 @@ far:
 | 2 — Problem Dataset | 10 curated problems with reference solutions and tests (ground truth) | Done |
 | 3 — Qwen Candidate Generator | Model abstraction, 5 strategies, code extraction, candidate persistence | Done |
 | 4 — Candidate Persistence | Per-run directories, manifests, SHA-256 hashes, atomic writes, resume, retry, integrity validation | Done |
-| 5–12 — Sandboxed evaluation → DPO training | Docker sandbox, pytest evaluation, ranking, preference-pair generation, QLoRA + DPO training | Not started |
+| 5 — Isolated Docker Sandbox | Locked-down container execution, resource limits, structured results, security test suite | Done |
+| 6–12 — Evaluation → DPO training | pytest evaluation, ranking, preference-pair generation, QLoRA + DPO training | Not started |
 
-Stages 5–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 6–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -60,7 +62,7 @@ see `CLAUDE.md`'s Scope Control rule.
 ```
 .
 ├── src/python_dpo/       # the installable package — see its README for file details
-│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates + placeholders
+│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates, sandbox
 │   ├── config.py          # typed config.yaml loader
 │   ├── atomic_io.py       # Stage 4: durable JSON/JSONL primitives
 │   ├── logging_config.py  # stderr logging setup
@@ -68,14 +70,17 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── models/            # Stage 3: ModelClient protocol, Qwen client, mock client
 │   ├── generation/        # Stage 3: strategies, prompts, extraction, orchestration
 │   ├── candidates/        # Stage 3/4: candidate schema and run-scoped repository
-│   └── runs/              # Stage 4: run manifests, statistics, migration, validation
+│   ├── runs/              # Stage 4: run manifests, statistics, migration, validation
+│   └── sandbox/           # Stage 5: isolated Docker execution of untrusted code
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
 │   ├── candidates/candidates.jsonl # legacy Stage 3 flat file (read-only; see migrate)
 │   └── candidates/runs/            # Stage 4: one directory per generation run
+├── docs/                  # sandbox-security.md — threat model and isolation boundaries
+├── examples/              # hello.py — a harmless file for exercising the sandbox
 ├── scripts/               # operational scripts (real-model smoke test)
-├── config.yaml            # project name, data paths, logging, model, generation, retry
+├── config.yaml            # project name, data paths, logging, model, generation, sandbox
 └── CLAUDE.md              # engineering rules for this project
 ```
 
@@ -105,8 +110,13 @@ logs, or this README.
 ## Testing
 
 ```bash
-pytest -q
+pytest -q                  # offline, Docker-free, zero skips
+pytest -q -m integration   # the Docker sandbox security suite (needs a daemon + image)
 ```
+
+Integration tests are deselected by default so the standard run needs no Docker and reports
+no skips. They are not optional extras — they are where the sandbox's security guarantees
+are demonstrated against a real daemon.
 
 ## CLI
 
@@ -131,6 +141,9 @@ python -m python_dpo candidates list RUN_ID     # candidates in a run
 python -m python_dpo candidates show RUN_ID CANDIDATE_ID
 python -m python_dpo candidates stats RUN_ID
 python -m python_dpo candidates migrate         # upgrade the legacy flat file into runs/
+
+python -m python_dpo sandbox health              # verify Docker end to end (see Stage 5)
+python -m python_dpo sandbox run --file FILE     # run a file inside the sandbox
 ```
 
 The remaining subcommands exist as **placeholders only**. Each logs a "not implemented
@@ -143,8 +156,9 @@ yet" message and exits with status `1` — none of them do real work:
 ## Configuration
 
 Runtime settings live in `config.yaml` at the project root: project name, data directory
-paths, logging level, and the Stage 3 `model`, `generation`, and `generation_strategies`
-sections. See `src/python_dpo/config.py` for how it's loaded and validated.
+paths, logging level, the `model` / `generation` / `generation_strategies` sections, and
+the Stage 5 `sandbox` section (image, resource limits, isolation toggles). See
+`src/python_dpo/config.py` for how it's loaded and validated.
 
 The model identifier lives in configuration and never in source code, so swapping models
 requires no code change. **No credentials belong in this file.**
@@ -453,3 +467,88 @@ python -m python_dpo candidates migrate
 Reads `data/candidates/candidates.jsonl` **read-only**, groups records by their existing
 `run_id`, upgrades them to schema 2.0 with hashes back-filled, and writes a proper run
 directory per run id found. The source file is never modified.
+
+## Stage 5 — Isolated Docker Sandbox
+
+### Purpose
+
+Every stage before this one deliberately stopped short of running the model's output.
+Stage 5 builds the boundary that makes running it safe: a `SandboxExecutor` that accepts
+arbitrary Python and executes it inside a locked-down container, returning a structured
+result describing *what happened*.
+
+**`status = "success"` means the program exited zero — not that the candidate is correct.**
+Deciding correctness requires running the problem's test suite, which is Stage 6's job.
+
+### Isolation at a glance
+
+| Boundary | Mechanism |
+|---|---|
+| Network | `--network none` — no internet, no localhost, no DNS |
+| Filesystem | Only the job workspace, mounted read-only; no project dir, no Docker socket |
+| User | `--user 65534:65534` (non-root); UID 0 rejected at config load |
+| Capabilities | `--cap-drop ALL` + `--security-opt no-new-privileges`; never `--privileged` |
+| Root FS | `--read-only`, with one size-limited `noexec,nosuid` tmpfs at `/tmp` |
+| CPU / memory | `--cpus`, `--memory` + `--memory-swap` (pinned, so swap can't double the limit) |
+| Processes | `--pids-limit` |
+| Time | Host-side termination, with startup overhead budgeted separately |
+| Output | Bounded readers; truncation always recorded, never silent |
+| Environment | Exactly three variables passed; the host environment is never inherited |
+
+The whole security surface is one method — `ContainerSpec.to_docker_args()` in
+`src/python_dpo/sandbox/container.py`. See [`docs/sandbox-security.md`](docs/sandbox-security.md)
+for the threat model, the reasoning behind each flag, and the known limitations.
+
+### Execution model
+
+Candidate source is **written to a file**, never interpolated into a command:
+
+```
+candidate.py  →  isolated workspace  →  container  →  python /workspace/candidate.py
+```
+
+There is no shell in that path (`shell=False` everywhere), so quoting and injection are
+absent by construction rather than defended against.
+
+### Result statuses
+
+`success`, `syntax_error`, `runtime_error`, `timeout`, `resource_exceeded`,
+`infrastructure_error`, `cancelled`.
+
+The critical distinction: **a candidate is never judged badly because Docker failed.**
+`infrastructure_error` says nothing about the candidate, and later stages must treat it
+differently from a genuine `runtime_error`.
+
+Syntax and runtime errors are told apart by the fact that CPython always prints
+`Traceback (most recent call last):` before a *runtime* exception and never before a
+compile failure — so a program that does `raise SyntaxError("x")` is correctly reported as
+a runtime error.
+
+### Setup and use
+
+```bash
+docker pull python:3.12-slim            # one-time image prep
+python -m python_dpo sandbox health      # verify the whole path end to end
+python -m python_dpo sandbox run --file examples/hello.py
+```
+
+`sandbox run` **copies** the file into an isolated workspace — the path you give it is never
+mounted into the container and never executed on the host.
+
+### Timeout budget
+
+`timeout_seconds` is the candidate's own budget; `startup_grace_seconds` separately covers
+container creation and interpreter start, which cost ~2s even on a warm image. Without that
+split a 5s timeout would really give a candidate under 3s, and a loaded machine could time
+out a program that is merely slow rather than wrong.
+
+### Testing
+
+```bash
+pytest -q                  # offline, Docker-free, zero skips
+pytest -q -m integration   # 33 tests proving the boundaries against a real daemon
+```
+
+The security guarantees are asserted at two levels: `test_sandbox_security.py` pins the
+generated argv (no Docker needed, runs on every commit) and `test_sandbox_integration.py`
+demonstrates the same properties against a live container.

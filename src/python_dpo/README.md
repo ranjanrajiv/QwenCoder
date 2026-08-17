@@ -1,10 +1,10 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 4 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 5 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
-configuration — the problem dataset, the model abstraction, candidate generation, and a
-reliable per-run persistence layer. No sandbox, evaluation, ranking, or training code
-lives here yet.
+configuration — the problem dataset, the model abstraction, candidate generation, a
+reliable per-run persistence layer, and the isolated Docker sandbox. No evaluation,
+ranking, or training code lives here yet.
 
 ## Subpackages
 
@@ -38,6 +38,14 @@ duplicate detection. See its [README](candidates/README.md).
 Introduced in Stage 4. Run manifests, statistics reconstructable from disk, the
 `RunRepository` that owns run directories and status transitions, migration of the
 Stage 3 flat file, and integrity validation. See its [README](runs/README.md).
+
+### [`sandbox/`](sandbox/)
+
+Introduced in Stage 5, and the only sanctioned path for executing untrusted code. Config,
+structured results, the per-execution workspace, the `ContainerRuntime` seam and its Docker
+CLI implementation, the executor, and the health check. `ContainerSpec.to_docker_args()` is
+the project's entire security surface. See its [README](sandbox/README.md) and
+[`docs/sandbox-security.md`](../../docs/sandbox-security.md).
 
 ## Files
 
@@ -77,8 +85,8 @@ keeps runtime dependencies minimal).
 - `build_parser() -> ArgumentParser` — a factory function (not a module-level parser)
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
-  `problems`, `generate`, `runs`, `candidates`, and the `evaluate`/`preferences`/`run`
-  placeholders.
+  `problems`, `generate`, `runs`, `candidates`, `sandbox`, and the
+  `evaluate`/`preferences`/`run` placeholders.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -91,6 +99,10 @@ keeps runtime dependencies minimal).
   built *before* any client exists, so a dry run cannot load a model even by accident.
 - `runs list` / `runs show` / `runs validate [--repair]` inspect and validate one run via
   `RunRepository` / `validate_run`.
+- `sandbox health` runs the six-step Docker check; `sandbox run --file PATH` copies a file
+  into an isolated workspace and executes it in a container. A candidate that crashes still
+  exits 0 — only an *infrastructure* failure makes the command fail, since the sandbox
+  worked correctly in the former case.
 - `candidates list` / `candidates show [--show-code] [--show-raw]` / `candidates stats` /
   `candidates migrate [--source] [--force]` inspect one run's candidates or upgrade the
   Stage 3 legacy flat file into a run directory.
@@ -131,6 +143,10 @@ on `PyYAML` (spec §6 exception).
 - `Paths` — a frozen dataclass holding the six absolute data directory paths (`raw`,
   `problems`, `candidates`, `evaluations`, `preferences`, `reports`). Its
   `ensure_exists()` method creates all six with `mkdir(parents=True, exist_ok=True)`.
+- `SandboxConfig` — the Stage 5 `sandbox:` section, defined in `sandbox/config.py` and
+  wrapped here by `_parse_sandbox`. Like `ModelConfig`, the typed object lives in the layer
+  it belongs to, so the dependency runs one way: configuration imports the sandbox package,
+  never the reverse. `SandboxConfigError` is translated into `ConfigError` at that boundary.
 - `GenerationSettings` — the `generation:` and `generation_strategies:` sections:
   `candidates_per_problem`, a validated `GenerationConfig`, the strategy list, and (Stage
   4) `retry: RetrySettings` from `generation.retry.max_attempts`. The typed model objects
