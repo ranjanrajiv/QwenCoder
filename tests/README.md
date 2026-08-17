@@ -41,7 +41,7 @@ One test per requirement in spec §14, plus a couple of guardrails:
   `ConfigError` with a "not found" message.
 - `test_paths_ensure_exists_creates_all_directories` — `Paths.ensure_exists()` creates
   all six directories under a `tmp_path` (§14.4, isolated).
-- `test_real_data_directories_exist` — the six real `data/*` directories exist in the
+- `test_real_data_directories_exist` — the seven real `data/*` directories exist in the
   repo (§14.4, real repo state).
 - `test_cli_help_exits_zero` / `test_cli_version_exits_zero_and_prints_version` — run
   `python -m python_dpo --help` / `--version` as a subprocess (with `PYTHONPATH=src`
@@ -66,7 +66,19 @@ One test per requirement in spec §14, plus a couple of guardrails:
 - `test_evaluations_subcommands_parse`, `test_bare_evaluations_prints_help_and_returns_nonzero`,
   `test_evaluations_list_reports_an_unknown_eval_id`,
   `test_evaluations_show_reports_an_unknown_eval_id`,
-  `test_evaluations_stats_reports_an_unknown_eval_id` — the `evaluations` inspection
+  `test_evaluations_stats_reports_an_unknown_eval_id`,
+  `test_evaluations_list_with_no_argument_lists_evaluation_runs` — the `evaluations`
+  inspection group, including the Stage 7 addition that made `eval_id` optional.
+- `test_rank_subcommands_parse`, `test_rank_run_requires_evaluation_run_id`,
+  `test_bare_rank_prints_help_and_returns_nonzero`,
+  `test_rank_run_reports_an_unknown_evaluation_run_id` (Stage 7) — `rank run` flag
+  parsing, including `--resume`/`--force`, and that an unknown evaluation run id is
+  rejected before any ranking work begins.
+- `test_rankings_subcommands_parse`, `test_bare_rankings_prints_help_and_returns_nonzero`,
+  `test_rankings_list_reports_an_unknown_ranking_run_id`,
+  `test_rankings_show_reports_an_unknown_ranking_run_id`,
+  `test_rankings_stats_reports_an_unknown_ranking_run_id`,
+  `test_rankings_validate_reports_an_unknown_ranking_run_id` — the `rankings` inspection
   group.
 
 ### `test_problems.py`
@@ -370,6 +382,66 @@ The Stage 6 candidate test executor suite, split by what it needs — same split
   `TestGenerator`'s comparison semantics and what the dataset was actually validated
   under — without it, such a divergence would show up as "the model is bad" rather than
   "the generator is wrong."
+
+### `ranking/`
+
+The Stage 7 candidate ranking suite. Entirely pure computation — no Docker, no model, no
+network — so unlike `sandbox/` and `evaluation/` it has no `-m integration` split; every
+file here runs in the default offline suite.
+
+- **`test_classifier.py`** — the full `CorrectnessClassifier` decision table: all tests
+  pass, one fails, all fail, a candidate-caused timeout classifies `incorrect` **not**
+  `indeterminate` (the defining rule of this stage), an infrastructure error classifies
+  `indeterminate`, `tests_skipped > 0` makes a candidate `incorrect`, `tests_total == 0`
+  is `indeterminate`, a missing evaluation result is `indeterminate` with a reason, and a
+  candidate runtime exception (`tests_error > 0`) is `incorrect` — the real p008 shape.
+- **`test_scorer.py`** — 10/10, 5/10, 0/10, and fractional pass rates; `score` always
+  equals `pass_rate`; `all_tests_passed` distinct from `pass_rate` at 0.95; a missing
+  evaluation result produces an indeterminate zero score; and — the check that matters
+  most — duration, code length, generation strategy, and syntax validity are all proven
+  **not** to affect `score`, by holding test results constant and varying only the
+  secondary metadata.
+- **`test_comparator.py`** — 10 vs 8, 8 vs 5, 10 vs 10 → `TIE`, either side indeterminate
+  → `INDETERMINATE` with no winner, a candidate-caused timeout compared like any other
+  incorrect candidate, `score_margin` arithmetic, comparing across problems rejected, and
+  the full spec §74 pairwise matrix (`A=10/10, B=8/10, C=10/10, D=5/10, E=0/10`) asserting
+  every listed relation including the `A = C` tie.
+- **`test_ranker.py`** — the spec §73 worked example (`A`/`C` tied at rank 1, `B` rank 3,
+  `D` rank 4, `E` rank 5); unique scores; all-correct (one tie group, zero preference
+  relationships — spec §62); all-incorrect with distinct rates preserving order (§63);
+  mixed correct/incorrect; all-indeterminate (zero preference-eligible — §64);
+  transitivity (`A>B, B>C ⇒ A>C` — §59); competition-rank numbering that skips by tie
+  group size; `candidate_id` breaking ties only for presentation, never clearing the
+  `tied` flag (§31); strict per-problem grouping, including a rejection when two
+  assessments in one `rank_problem` call disagree on `tests_total` — the ranker's own
+  structural invariant that makes integer tie comparison sound.
+- **`test_repository.py`** — the spec §53 API (`save_assessment`/`save_ranking`/
+  `save_comparison`, `get_assessment`/`get_ranking`, `list_problem_rankings`/
+  `list_all_rankings`, `count`), the `ranked_problem_ids()` resume index, malformed-line
+  rejection with a line number, a truncated final line.
+- **`test_run_repository.py`** — ranking-run-id format and uniqueness; create/get/list
+  (newest first); `latest_run_for_evaluation_run`; the full status lifecycle and
+  resume-refuses-`completed` rule, mirroring `evaluation/test_run_repository.py` exactly.
+- **`test_statistics.py`** — every spec §40 counter against hand-counted fixtures
+  (including that `fully_correct` always equals `correct`); the §41 per-problem
+  distribution; `format_ranking_statistics` includes every counter by label;
+  `format_ranking_table` matches the §79 shape and lists indeterminate candidates last.
+- **`test_validation.py`** — each check built by mutating a real ranking run produced by
+  the actual scorer/ranker/comparator (mirroring `tests/test_run_validation.py`'s
+  approach): a self-consistent-but-tampered assessment (looks like a full pass; the real
+  evidence is 7/10) is caught by the §51/§52 cross-artifact recomputation against the
+  source evaluation run; a missing assessment for an evaluated candidate; a duplicate
+  assessment; a tied pair given a winner in `comparisons.jsonl` — the check that most
+  directly protects DPO label quality; an indeterminate result marked preference-eligible,
+  which cannot even be constructed (`RankingResult.__post_init__` itself forbids it) and
+  so surfaces as a schema issue on load, proving the model is the first line of defense;
+  drifted or missing `statistics.json`; a missing manifest.
+- **`test_integration.py`** — the spec §73/§74 end-to-end flow verified against a real,
+  validated ranking run; the §75 **reproducibility test** (two ranking runs over
+  identical evaluation evidence produce identical assessments, rankings, and comparisons,
+  differing only in run id and timestamps); the §76 **versioning test** (changing
+  `scoring_version` creates a new ranking run and leaves the original run's
+  `rankings.jsonl` byte-for-byte unchanged).
 
 ### `test_no_heavy_imports.py`
 

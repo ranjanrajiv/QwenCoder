@@ -24,6 +24,7 @@ from .evaluation import (
     EvaluationRunNotFoundError,
     EvaluationRunRepository,
     EvaluationStatistics,
+    EvaluationStoreError,
     PytestRunner,
     build_evaluation_sandbox_config,
     probe_versions,
@@ -48,6 +49,23 @@ from .problems import (
     load_problems,
     save_problems,
     validate_dataset,
+)
+from .ranking import (
+    CLASSIFIER_VERSION,
+    COMPARATOR_VERSION,
+    RANKING_VERSION,
+    SCORING_VERSION,
+    CandidateComparator,
+    CandidateRanker,
+    CandidateScorer,
+    RankingRunError,
+    RankingRunNotFoundError,
+    RankingRunRepository,
+    RankingStatistics,
+    format_ranking_report,
+    format_ranking_statistics,
+    format_ranking_table,
+    validate_ranking_run,
 )
 from .runs import (
     MigrationError,
@@ -1088,6 +1106,21 @@ def _add_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def _cmd_evaluations_list(args: argparse.Namespace, config: Config) -> int:
     eval_run_repo = _evaluation_run_repository(config)
+
+    if args.eval_id is None:
+        # No eval_id: list evaluation runs themselves, mirroring `runs list`.
+        runs = eval_run_repo.list_runs()
+        if not runs:
+            sys.stdout.write("No evaluation runs found.\n")
+            return 0
+        header = f"{'EVAL ID':<32}{'STATUS':<13}{'CANDIDATE RUN'}"
+        lines = [header]
+        lines.extend(
+            f"{m.evaluation_run_id:<32}{m.status:<13}{m.candidate_run_id}" for m in runs
+        )
+        sys.stdout.write("\n".join(lines) + "\n")
+        return 0
+
     try:
         eval_run_repo.get_run(args.eval_id)
     except EvaluationRunNotFoundError as exc:
@@ -1206,9 +1239,11 @@ def _add_evaluations_parser(subparsers: argparse._SubParsersAction) -> None:
     evaluations_subparsers = evaluations_parser.add_subparsers(dest="evaluations_command")
 
     list_parser = evaluations_subparsers.add_parser(
-        "list", help="List results in an evaluation run."
+        "list", help="List evaluation runs, or results within one."
     )
-    list_parser.add_argument("eval_id")
+    list_parser.add_argument(
+        "eval_id", nargs="?", default=None, help="Omit to list all evaluation runs."
+    )
     list_parser.set_defaults(func=_cmd_evaluations_list)
 
     show_parser = evaluations_subparsers.add_parser(
@@ -1223,6 +1258,433 @@ def _add_evaluations_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     stats_parser.add_argument("eval_id")
     stats_parser.set_defaults(func=_cmd_evaluations_stats)
+
+
+# ---------------------------------------------------------------------------------- rank
+
+
+def _ranking_run_repository(config: Config) -> RankingRunRepository:
+    return RankingRunRepository(config.paths.rankings / "runs")
+
+
+def _rank_selected_problem_ids(
+    results, failures, problem_id: str | None, limit: int | None
+) -> list[str]:
+    """Narrow an evaluation run's covered problems down to what this invocation should
+    rank. Only problems with at least one result or failure are ever selectable — a
+    problem the evaluation run never touched cannot be ranked (spec section 70).
+    """
+    all_ids = sorted({r.problem_id for r in results} | {f.problem_id for f in failures})
+    if problem_id is not None:
+        if problem_id not in all_ids:
+            raise ValueError(f"no evaluated candidates for problem id {problem_id!r}")
+        return [problem_id]
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("--limit must be at least 1")
+        return all_ids[:limit]
+    return all_ids
+
+
+def _rank_problem_group(
+    ranking_run_id: str,
+    problem_id: str,
+    results,
+    failures,
+    candidates_by_id: dict,
+    scorer: CandidateScorer,
+    ranker: CandidateRanker,
+    comparator: CandidateComparator,
+    repository,
+) -> int:
+    """Score, rank, and compare exactly one problem's candidates, persisting as it goes.
+    Returns the number of candidates assessed.
+    """
+    assessments = []
+    for result in results:
+        if result.problem_id != problem_id:
+            continue
+        assessments.append(
+            scorer.score(
+                ranking_run_id=ranking_run_id,
+                evaluation_run_id=result.evaluation_run_id,
+                candidate_run_id=result.candidate_run_id,
+                candidate_id=result.candidate_id,
+                problem_id=result.problem_id,
+                result=result,
+                candidate=candidates_by_id.get(result.candidate_id),
+            )
+        )
+    for failure in failures:
+        if failure.problem_id != problem_id:
+            continue
+        assessments.append(
+            scorer.score(
+                ranking_run_id=ranking_run_id,
+                evaluation_run_id=failure.evaluation_run_id,
+                candidate_run_id=failure.candidate_run_id,
+                candidate_id=failure.candidate_id,
+                problem_id=failure.problem_id,
+                result=None,
+                missing_error_type=failure.error_type,
+                candidate=candidates_by_id.get(failure.candidate_id),
+            )
+        )
+
+    repository.save_assessments(assessments)
+    rankings = ranker.rank_problem(ranking_run_id, problem_id, assessments)
+    repository.save_rankings(rankings)
+    comparisons = comparator.build_matrix(ranking_run_id, assessments)
+    repository.save_comparisons(comparisons)
+    return len(assessments)
+
+
+def _write_ranking_statistics(
+    ranking_run_repo: RankingRunRepository, ranking_run_id: str
+) -> RankingStatistics:
+    manifest = ranking_run_repo.get_run(ranking_run_id)
+    repository = ranking_run_repo.results(ranking_run_id)
+    stats = RankingStatistics.from_records(
+        manifest, repository.load_assessments(), repository.load_rankings()
+    )
+    ranking_run_repo.write_statistics(stats)
+    return stats
+
+
+def _cmd_rank_run(args: argparse.Namespace, config: Config) -> int:
+    """Rank an evaluation run's candidates (spec sections 47, 48, 53-55).
+
+    Unlike ``evaluate run``'s resume-by-default, this follows the spec literally: a bare
+    invocation always creates a **new** ranking run; ``--resume RANKING_RUN_ID`` is the
+    only way to continue one. ``--force`` mints a new ranking run and never modifies an
+    existing one (spec section 55) — like ``generate --force``, it has no effect unless
+    combined with ``--resume``, since a bare invocation already always creates a new run.
+    """
+    eval_run_repo = _evaluation_run_repository(config)
+    try:
+        evaluation_manifest = eval_run_repo.get_run(args.evaluation_run_id)
+    except EvaluationRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    eval_results_repo = eval_run_repo.results(args.evaluation_run_id)
+    try:
+        results = eval_results_repo.load_all()
+        failures = eval_results_repo.load_failures()
+    except EvaluationStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if not results and not failures:
+        logger.error("evaluation run %r has no results to rank", args.evaluation_run_id)
+        return 1
+
+    try:
+        candidate_repo = _run_repository(config).candidates(evaluation_manifest.candidate_run_id)
+        candidates_by_id = {c.candidate_id: c for c in candidate_repo.load_all()}
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    ranking_run_repo = _ranking_run_repository(config)
+
+    if args.resume:
+        if args.problem_id is not None or args.limit is not None:
+            logger.error(
+                "--problem-id and --limit cannot be combined with --resume; the ranking "
+                "run's manifest is authoritative"
+            )
+            return 1
+        if args.force:
+            logger.info(
+                "--force overrides --resume %s; creating a new ranking run instead", args.resume
+            )
+            manifest = None
+        else:
+            try:
+                manifest = ranking_run_repo.get_run(args.resume)
+            except RankingRunNotFoundError as exc:
+                logger.error("%s", exc)
+                return 1
+            if manifest.evaluation_run_id != args.evaluation_run_id:
+                logger.error(
+                    "ranking run %r covers evaluation run %r, not %r",
+                    args.resume,
+                    manifest.evaluation_run_id,
+                    args.evaluation_run_id,
+                )
+                return 1
+            try:
+                manifest = ranking_run_repo.resume_run(args.resume)
+            except RankingRunError as exc:
+                logger.error("%s", exc)
+                return 1
+            logger.info("Resuming ranking run %s", manifest.ranking_run_id)
+    else:
+        manifest = None
+
+    if manifest is None:
+        try:
+            selected_problem_ids = _rank_selected_problem_ids(
+                results, failures, args.problem_id, args.limit
+            )
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
+        manifest = ranking_run_repo.create_run(
+            evaluation_run_id=args.evaluation_run_id,
+            candidate_run_id=evaluation_manifest.candidate_run_id,
+            ranking_version=RANKING_VERSION,
+            scoring_version=SCORING_VERSION,
+            comparator_version=COMPARATOR_VERSION,
+            requested_problem_ids=selected_problem_ids,
+        )
+        manifest = ranking_run_repo.start_run(manifest.ranking_run_id)
+        logger.info(
+            "Ranking run %s created | evaluation run %s | %d problem(s)",
+            manifest.ranking_run_id,
+            args.evaluation_run_id,
+            len(selected_problem_ids),
+        )
+
+    repository = ranking_run_repo.results(manifest.ranking_run_id)
+    already_ranked = repository.ranked_problem_ids()
+    remaining = [pid for pid in manifest.requested_problem_ids if pid not in already_ranked]
+    for pid in manifest.requested_problem_ids:
+        if pid in already_ranked:
+            logger.info("Skipping %s (already ranked)", pid)
+
+    scorer = CandidateScorer()
+    ranker = CandidateRanker()
+    comparator = CandidateComparator()
+
+    try:
+        for problem_id in remaining:
+            _rank_problem_group(
+                manifest.ranking_run_id,
+                problem_id,
+                results,
+                failures,
+                candidates_by_id,
+                scorer,
+                ranker,
+                comparator,
+                repository,
+            )
+    except KeyboardInterrupt:
+        ranking_run_repo.interrupt_run(manifest.ranking_run_id)
+        _write_ranking_statistics(ranking_run_repo, manifest.ranking_run_id)
+        logger.warning(
+            "Ranking run %s interrupted; resume with: python -m python_dpo rank run "
+            "--evaluation-run-id %s --resume %s",
+            manifest.ranking_run_id,
+            args.evaluation_run_id,
+            manifest.ranking_run_id,
+        )
+        return 130
+
+    stats = _write_ranking_statistics(ranking_run_repo, manifest.ranking_run_id)
+    complete = set(manifest.requested_problem_ids) <= repository.ranked_problem_ids()
+
+    if complete:
+        ranking_run_repo.complete_run(manifest.ranking_run_id)
+        final_status = "completed"
+    else:
+        ranking_run_repo.interrupt_run(manifest.ranking_run_id)
+        final_status = "interrupted"
+
+    logger.info(
+        "Ranking run %s %s | %d problem(s) ranked this call | candidates=%d correct=%d "
+        "incorrect=%d indeterminate=%d",
+        manifest.ranking_run_id,
+        final_status,
+        len(remaining),
+        stats.candidates,
+        stats.correct,
+        stats.incorrect,
+        stats.indeterminate,
+    )
+    return 0 if final_status == "completed" else 1
+
+
+def _add_rank_parser(subparsers: argparse._SubParsersAction) -> None:
+    rank_parser = subparsers.add_parser(
+        "rank",
+        help="Classify, score, and rank candidates from an evaluation run.",
+        description=(
+            "Convert Stage 6's objective execution evidence into a correctness "
+            "classification, a score, and a deterministic per-problem ranking with "
+            "explicit tie groups. Never computes chosen/rejected labels, a DPO pair, or "
+            "calls an LLM judge; that belongs to a later stage."
+        ),
+    )
+    rank_parser.set_defaults(func=_make_help_handler(rank_parser))
+
+    rank_subparsers = rank_parser.add_subparsers(dest="rank_command")
+
+    run_parser = rank_subparsers.add_parser(
+        "run", help="Rank an evaluation run's candidates."
+    )
+    run_parser.add_argument("--evaluation-run-id", required=True, dest="evaluation_run_id")
+    run_parser.add_argument(
+        "--problem-id", default=None, help="Rank only candidates for this problem."
+    )
+    run_parser.add_argument(
+        "--limit", type=int, default=None, help="Rank only the first N evaluated problems."
+    )
+    run_parser.add_argument(
+        "--resume",
+        metavar="RANKING_RUN_ID",
+        default=None,
+        help="Continue an existing ranking run instead of creating a new one.",
+    )
+    run_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --resume, abandon it and create a new ranking run instead.",
+    )
+    run_parser.set_defaults(func=_cmd_rank_run)
+
+
+# ----------------------------------------------------------------------------- rankings
+
+
+def _cmd_rankings_list(args: argparse.Namespace, config: Config) -> int:
+    ranking_run_repo = _ranking_run_repository(config)
+    try:
+        ranking_run_repo.get_run(args.ranking_run_id)
+    except RankingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    rankings = ranking_run_repo.results(args.ranking_run_id).list_all_rankings()
+    if not rankings:
+        sys.stdout.write("No rankings found.\n")
+        return 0
+
+    by_problem: dict[str, list] = {}
+    for ranking in rankings:
+        by_problem.setdefault(ranking.problem_id, []).append(ranking)
+
+    header = f"{'PROBLEM':<10}{'CANDIDATES':<12}{'CORRECT':<9}{'INCORRECT':<11}{'INDET.':<8}{'TIE GROUPS'}"
+    lines = [header]
+    for problem_id in sorted(by_problem):
+        group = by_problem[problem_id]
+        correct = sum(1 for r in group if r.correctness == "correct")
+        incorrect = sum(1 for r in group if r.correctness == "incorrect")
+        indeterminate = sum(1 for r in group if r.correctness == "indeterminate")
+        tie_groups = len({r.tie_group for r in group if r.tie_group is not None})
+        lines.append(
+            f"{problem_id:<10}{len(group):<12}{correct:<9}{incorrect:<11}{indeterminate:<8}{tie_groups}"
+        )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_rankings_show(args: argparse.Namespace, config: Config) -> int:
+    ranking_run_repo = _ranking_run_repository(config)
+    try:
+        ranking_run_repo.get_run(args.ranking_run_id)
+    except RankingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = ranking_run_repo.results(args.ranking_run_id)
+    rankings = repository.list_problem_rankings(args.problem_id)
+    if not rankings:
+        logger.error(
+            "no rankings for problem %r in %r", args.problem_id, args.ranking_run_id
+        )
+        return 1
+
+    assessments_by_id = {
+        a.candidate_id: a
+        for a in repository.load_assessments()
+        if a.problem_id == args.problem_id
+    }
+    rows = [
+        (ranking, assessments_by_id[ranking.candidate_id])
+        for ranking in rankings
+        if ranking.candidate_id in assessments_by_id
+    ]
+    sys.stdout.write(format_ranking_table(rows))
+    return 0
+
+
+def _cmd_rankings_stats(args: argparse.Namespace, config: Config) -> int:
+    ranking_run_repo = _ranking_run_repository(config)
+    try:
+        manifest = ranking_run_repo.get_run(args.ranking_run_id)
+    except RankingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = ranking_run_repo.results(args.ranking_run_id)
+    stats = RankingStatistics.from_records(
+        manifest, repository.load_assessments(), repository.load_rankings()
+    )
+    sys.stdout.write(format_ranking_statistics(stats))
+    return 0
+
+
+def _cmd_rankings_validate(args: argparse.Namespace, config: Config) -> int:
+    ranking_run_repo = _ranking_run_repository(config)
+    run_dir = ranking_run_repo.run_dir(args.ranking_run_id)
+    if not (run_dir / MANIFEST_FILENAME).is_file():
+        logger.error("no ranking run %r at %s", args.ranking_run_id, run_dir)
+        return 1
+
+    evaluation_run_dir = None
+    try:
+        manifest = ranking_run_repo.get_run(args.ranking_run_id)
+        evaluation_run_dir = _evaluation_run_repository(config).run_dir(manifest.evaluation_run_id)
+    except RankingRunError:
+        pass  # validate_ranking_run below will surface the manifest problem itself
+
+    try:
+        known_problem_ids = {p.id for p in load_problems(dataset_path(config.paths.problems))}
+    except DatasetError:
+        known_problem_ids = None
+
+    report = validate_ranking_run(run_dir, evaluation_run_dir, known_problem_ids)
+    sys.stdout.write(format_ranking_report(report))
+    return 0 if report.valid else 1
+
+
+def _add_rankings_parser(subparsers: argparse._SubParsersAction) -> None:
+    rankings_parser = subparsers.add_parser(
+        "rankings",
+        help="Inspect ranking runs.",
+        description="List, show, validate, and summarize ranking results.",
+    )
+    rankings_parser.set_defaults(func=_make_help_handler(rankings_parser))
+
+    rankings_subparsers = rankings_parser.add_subparsers(dest="rankings_command")
+
+    list_parser = rankings_subparsers.add_parser(
+        "list", help="Per-problem summary of a ranking run."
+    )
+    list_parser.add_argument("ranking_run_id")
+    list_parser.set_defaults(func=_cmd_rankings_list)
+
+    show_parser = rankings_subparsers.add_parser(
+        "show", help="Show the rank table for one problem."
+    )
+    show_parser.add_argument("ranking_run_id")
+    show_parser.add_argument("problem_id")
+    show_parser.set_defaults(func=_cmd_rankings_show)
+
+    stats_parser = rankings_subparsers.add_parser(
+        "stats", help="Show ranking run statistics."
+    )
+    stats_parser.add_argument("ranking_run_id")
+    stats_parser.set_defaults(func=_cmd_rankings_stats)
+
+    validate_parser = rankings_subparsers.add_parser(
+        "validate", help="Validate one ranking run's integrity."
+    )
+    validate_parser.add_argument("ranking_run_id")
+    validate_parser.set_defaults(func=_cmd_rankings_validate)
 
 
 # ------------------------------------------------------------------------------- sandbox
@@ -1352,6 +1814,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_sandbox_parser(subparsers)
     _add_evaluate_parser(subparsers)
     _add_evaluations_parser(subparsers)
+    _add_rank_parser(subparsers)
+    _add_rankings_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

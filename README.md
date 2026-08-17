@@ -3,14 +3,15 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 6 — Candidate Test Executor.** The foundation (packaging, CLI,
+**Current status: Stage 7 — Candidate Ranking.** The foundation (packaging, CLI,
 logging, typed configuration), the ground-truth layer (10 curated Python problems with
 trusted reference solutions and executable tests), candidate generation with a Qwen Coder
 model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic persistence,
-resume, retry, integrity validation), an isolated Docker execution sandbox, and a
-pytest-based candidate test executor are in place. No ranking, preference-pair
-generation, or training code has been implemented yet — and **generated code, and the
-tests generated for it, are executed only inside the sandbox, never on the host**.
+resume, retry, integrity validation), an isolated Docker execution sandbox, a
+pytest-based candidate test executor, and deterministic candidate ranking are in place.
+No preference-pair generation or training code has been implemented yet — and
+**generated code, and the tests generated for it, are executed only inside the sandbox,
+never on the host**; ranking itself never executes code or calls an LLM at all.
 
 ## Planned pipeline
 
@@ -34,13 +35,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first six stages are implemented. Everything from candidate ranking onward is still
-a placeholder that documents the intended shape of the pipeline.
+The first seven stages are implemented. Everything from preference-pair generation
+onward is still a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Six have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Seven have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -51,9 +52,10 @@ far:
 | 4 — Candidate Persistence | Per-run directories, manifests, SHA-256 hashes, atomic writes, resume, retry, integrity validation | Done |
 | 5 — Isolated Docker Sandbox | Locked-down container execution, resource limits, structured results, security test suite | Done |
 | 6 — Candidate Test Executor | Deterministic pytest-suite generation, sandboxed evaluation, per-test evidence | Done |
-| 7–12 — Ranking → DPO training | Candidate ranking, preference-pair generation, QLoRA + DPO training | Not started |
+| 7 — Candidate Ranking | Correctness classification, scoring, deterministic per-problem ranking, pairwise comparison | Done |
+| 8–12 — Preference pairs → DPO training | Preference-pair generation, QLoRA + DPO training | Not started |
 
-Stages 7–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 8–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -63,7 +65,7 @@ see `CLAUDE.md`'s Scope Control rule.
 ```
 .
 ├── src/python_dpo/       # the installable package — see its README for file details
-│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates, sandbox, evaluate
+│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates, sandbox, evaluate, rank
 │   ├── config.py          # typed config.yaml loader
 │   ├── atomic_io.py       # Stage 4: durable JSON/JSONL primitives
 │   ├── logging_config.py  # stderr logging setup
@@ -73,13 +75,15 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── candidates/        # Stage 3/4: candidate schema and run-scoped repository
 │   ├── runs/              # Stage 4: run manifests, statistics, migration, validation
 │   ├── sandbox/           # Stage 5: isolated Docker execution of untrusted code
-│   └── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
+│   ├── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
+│   └── ranking/           # Stage 7: correctness classification, scoring, ranking
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
 │   ├── candidates/candidates.jsonl # legacy Stage 3 flat file (read-only; see migrate)
 │   ├── candidates/runs/            # Stage 4: one directory per generation run
-│   └── evaluations/runs/           # Stage 6: one directory per evaluation run
+│   ├── evaluations/runs/           # Stage 6: one directory per evaluation run
+│   └── rankings/runs/              # Stage 7: one directory per ranking run
 ├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
@@ -157,6 +161,14 @@ python -m python_dpo evaluate run --run-id RUN_ID --force  # start a fresh evalu
 python -m python_dpo evaluations list EVAL_ID    # results in an evaluation run
 python -m python_dpo evaluations show EVAL_ID CANDIDATE_ID
 python -m python_dpo evaluations stats EVAL_ID
+
+python -m python_dpo rank run --evaluation-run-id EVAL_ID   # always a new ranking run (see Stage 7)
+python -m python_dpo rank run --evaluation-run-id EVAL_ID --resume RANK_ID  # continue one
+
+python -m python_dpo rankings list RANK_ID       # per-problem summary
+python -m python_dpo rankings show RANK_ID PROBLEM_ID   # the rank table for one problem
+python -m python_dpo rankings stats RANK_ID
+python -m python_dpo rankings validate RANK_ID
 ```
 
 The remaining subcommands exist as **placeholders only**. Each logs a "not implemented
@@ -172,7 +184,8 @@ paths, logging level, the `model` / `generation` / `generation_strategies` secti
 Stage 5 `sandbox` section (image, resource limits, isolation toggles), and the Stage 6
 `evaluation` section (evaluator image, timeout, startup grace, auto-pull — every
 isolation setting itself is inherited from `sandbox` at run time, never re-specified).
-See `src/python_dpo/config.py` for how it's loaded and validated.
+Stage 7 ranking has no configuration section of its own — v1 has no tunable scoring
+parameters. See `src/python_dpo/config.py` for how it's loaded and validated.
 
 The model identifier lives in configuration and never in source code, so swapping models
 requires no code change. **No credentials belong in this file.**
@@ -672,4 +685,97 @@ data/evaluations/runs/eval_YYYYMMDD_HHMMSS_xxxx/
 pytest -q                  # offline, Docker-free, zero skips
 pytest -q -m integration   # sandbox security + 13 evaluation tests against real containers,
                             # including the reference-solution self-check across all 10 problems
+```
+
+## Stage 7 — Candidate Ranking
+
+### Purpose
+
+Stage 6 produced objective execution evidence — pass/fail counts, nothing more. Stage 7
+turns that evidence into a judgement: a correctness classification
+(`correct`/`incorrect`/`indeterminate`), a score, and a deterministic ranking of
+candidates **within each problem** — laying the groundwork Step 8 will use to build DPO
+preference pairs, without generating any pair itself.
+
+**The ranking signal is test-case performance, full stop.** No LLM judge, no random
+ordering, no heuristic scoring. Given identical evaluation evidence and configuration,
+the output is byte-for-byte deterministic.
+
+**At a glance (the real Stage 6 evaluation run, `eval_20260817_115154_dcd4`, 50
+candidates across all 10 problems):** 30 correct · 20 incorrect · 0 indeterminate · 14 tie
+groups · 49 of 50 candidates tied with at least one sibling · 22 of 100 candidate pairs
+are decisive, the rest are ties.
+
+That last number is the point, not a surprise: **6 of the 10 problems collapse to a
+single tie group and contribute zero ordering** — five have all five candidates fully
+passing, one has all five failing at an identical rate. Only 4 problems (`p004`, `p007`,
+`p008`, `p010`) produce any preference signal at all from this run. Tie handling isn't an
+edge case here; it's the majority behavior, and this stage never invents a preference to
+paper over it.
+
+### Correctness classification
+
+| Condition | Result |
+|---|---|
+| No evaluation result at all | `indeterminate` |
+| Sandbox/infrastructure failure | `indeterminate` |
+| The problem had zero declared tests | `indeterminate` |
+| Every test passed, no timeout | `correct` |
+| Otherwise — a failure, a candidate exception, a skipped test, or a candidate-caused timeout | `incorrect` |
+
+A candidate-caused timeout (`while True: pass`) is `incorrect`, never `indeterminate` —
+only a genuine absence of usable test evidence is indeterminate. `score == pass_rate ==
+tests_passed / tests_total`; nothing else (duration, code length, generation strategy,
+syntax validity) is allowed to move it.
+
+### Ranking
+
+Candidates are grouped **strictly by problem** — never compared across problems. Within a
+problem, ranked candidates get a **competition rank** (1, 1, 3, 4, 5): two fully-correct
+candidates are tied at rank 1, and the next rank skips by the tie group's size. Tie
+detection compares the **integer** `tests_passed`, never a float, since every ranked
+candidate in a problem shares the same declared test suite — asserted, not assumed.
+`indeterminate` candidates are recorded with `rank: null`, listed last, never dropped.
+
+```bash
+python -m python_dpo rankings show RANK_ID p004
+```
+```
+RANK  CANDIDATE     TESTS     SCORE   STATUS
+1     p004_c001     8/8       1.00    correct
+1     p004_c002     8/8       1.00    correct
+1     p004_c003     8/8       1.00    correct
+4     p004_c004     6/8       0.75    incorrect
+4     p004_c005     6/8       0.75    incorrect
+```
+
+### Persisted evidence
+
+```
+data/rankings/runs/rank_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json        # evaluation run covered, algorithm versions, status
+├── assessments.jsonl     # one CandidateAssessment per candidate
+├── rankings.jsonl        # one RankingResult per candidate
+├── comparisons.jsonl     # one ComparisonResult per in-problem pair
+└── statistics.json       # reconstructable from assessments.jsonl + rankings.jsonl
+```
+
+### Resume semantics
+
+Unlike `evaluate run`'s resume-by-default, `rank run` follows the spec literally: a bare
+invocation **always creates a new ranking run** — matching `generate`, not `evaluate` —
+because ranking is pure in-memory computation with no GPU or Docker cost to amortize.
+`--resume RANKING_RUN_ID` is the only way to continue one; any selection flag combined
+with `--resume` is rejected, since the manifest is authoritative.
+
+```bash
+python -m python_dpo rank run --evaluation-run-id EVAL_ID   # first call: creates rank_...
+python -m python_dpo rank run --evaluation-run-id EVAL_ID   # second call: a different new run
+python -m python_dpo rank run --evaluation-run-id EVAL_ID --resume RANK_ID  # continue RANK_ID
+```
+
+### Testing
+
+```bash
+pytest -q   # offline, zero skips — ranking is pure computation, no Docker involved at all
 ```

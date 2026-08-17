@@ -35,6 +35,7 @@ def test_config_loads_real_config_yaml():
         config.paths.problems,
         config.paths.candidates,
         config.paths.evaluations,
+        config.paths.rankings,
         config.paths.preferences,
         config.paths.reports,
     ):
@@ -62,6 +63,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         problems=tmp_path / "problems",
         candidates=tmp_path / "candidates",
         evaluations=tmp_path / "evaluations",
+        rankings=tmp_path / "rankings",
         preferences=tmp_path / "preferences",
         reports=tmp_path / "reports",
     )
@@ -71,6 +73,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         paths.problems,
         paths.candidates,
         paths.evaluations,
+        paths.rankings,
         paths.preferences,
         paths.reports,
     ):
@@ -83,6 +86,7 @@ def test_real_data_directories_exist():
         "problems",
         "candidates",
         "evaluations",
+        "rankings",
         "preferences",
         "reports",
     ):
@@ -489,3 +493,103 @@ def test_evaluations_stats_reports_an_unknown_eval_id():
     result = _run_module("evaluations", "stats", "eval_does_not_exist")
     assert result.returncode == 1
     assert "eval_does_not_exist" in result.stderr
+
+
+def test_evaluations_list_with_no_argument_lists_evaluation_runs():
+    result = _run_module("evaluations", "list")
+    assert result.returncode == 0
+
+
+# ----------------------------------------------------------------------------------- rank
+
+
+def test_rank_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["rank", "run", "--evaluation-run-id", "eval_x"])
+    assert args.command == "rank" and args.rank_command == "run"
+    assert args.evaluation_run_id == "eval_x"
+    assert args.problem_id is None and args.limit is None
+    assert args.resume is None and args.force is False
+    assert callable(args.func)
+
+    args = parser.parse_args(
+        [
+            "rank", "run", "--evaluation-run-id", "eval_x",
+            "--problem-id", "p001", "--limit", "3", "--resume", "rank_x", "--force",
+        ]
+    )
+    assert args.problem_id == "p001" and args.limit == 3
+    assert args.resume == "rank_x" and args.force is True
+
+
+def test_rank_run_requires_evaluation_run_id():
+    result = _run_module("rank", "run")
+    assert result.returncode == 2
+    assert "--evaluation-run-id" in result.stderr
+
+
+def test_bare_rank_prints_help_and_returns_nonzero():
+    result = _run_module("rank")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_rank_run_reports_an_unknown_evaluation_run_id():
+    result = _run_module("rank", "run", "--evaluation-run-id", "eval_does_not_exist")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr
+
+
+# ------------------------------------------------------------------------------- rankings
+
+
+def test_rankings_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["rankings", "list", "rank_x"])
+    assert args.command == "rankings" and args.rankings_command == "list"
+    assert args.ranking_run_id == "rank_x"
+    assert callable(args.func)
+
+    args = parser.parse_args(["rankings", "show", "rank_x", "p001"])
+    assert args.ranking_run_id == "rank_x" and args.problem_id == "p001"
+    assert callable(args.func)
+
+    args = parser.parse_args(["rankings", "stats", "rank_x"])
+    assert args.ranking_run_id == "rank_x"
+    assert callable(args.func)
+
+    args = parser.parse_args(["rankings", "validate", "rank_x"])
+    assert args.ranking_run_id == "rank_x"
+    assert callable(args.func)
+
+
+def test_bare_rankings_prints_help_and_returns_nonzero():
+    result = _run_module("rankings")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_rankings_list_reports_an_unknown_ranking_run_id():
+    result = _run_module("rankings", "list", "rank_does_not_exist")
+    assert result.returncode == 1
+    assert "rank_does_not_exist" in result.stderr
+
+
+def test_rankings_show_reports_an_unknown_ranking_run_id():
+    result = _run_module("rankings", "show", "rank_does_not_exist", "p001")
+    assert result.returncode == 1
+    assert "rank_does_not_exist" in result.stderr
+
+
+def test_rankings_stats_reports_an_unknown_ranking_run_id():
+    result = _run_module("rankings", "stats", "rank_does_not_exist")
+    assert result.returncode == 1
+    assert "rank_does_not_exist" in result.stderr
+
+
+def test_rankings_validate_reports_an_unknown_ranking_run_id():
+    result = _run_module("rankings", "validate", "rank_does_not_exist")
+    assert result.returncode == 1
+    assert "rank_does_not_exist" in result.stderr

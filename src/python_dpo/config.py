@@ -18,6 +18,7 @@ _REQUIRED_PATH_KEYS = (
     "problems",
     "candidates",
     "evaluations",
+    "rankings",
     "preferences",
     "reports",
 )
@@ -94,6 +95,7 @@ class Paths:
     problems: Path
     candidates: Path
     evaluations: Path
+    rankings: Path
     preferences: Path
     reports: Path
 
@@ -103,6 +105,7 @@ class Paths:
             self.problems,
             self.candidates,
             self.evaluations,
+            self.rankings,
             self.preferences,
             self.reports,
         ):
@@ -269,6 +272,7 @@ class Config:
             problems=resolved_paths["problems"],
             candidates=resolved_paths["candidates"],
             evaluations=resolved_paths["evaluations"],
+            rankings=resolved_paths["rankings"],
             preferences=resolved_paths["preferences"],
             reports=resolved_paths["reports"],
         )

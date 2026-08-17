@@ -6,6 +6,7 @@ paths:
   problems: data/problems
   candidates: data/candidates
   evaluations: data/evaluations
+  rankings: data/rankings
   preferences: data/preferences
   reports: data/reports
 

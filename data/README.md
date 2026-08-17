@@ -7,9 +7,9 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Stage 6, `problems/`, `candidates/`, and `evaluations/` hold real artifacts; the
-other subdirectories are still empty apart from a `.gitkeep` placeholder that keeps them
-present in git. They
+As of Stage 7, `problems/`, `candidates/`, `evaluations/`, and `rankings/` hold real
+artifacts; the other subdirectories are still empty apart from a `.gitkeep` placeholder
+that keeps them present in git. They
 correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
 `Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
 `ensure_exists()` method can recreate this exact structure from scratch.
@@ -117,6 +117,42 @@ python -m python_dpo evaluations list / show / stats EVAL_ID
 Evaluation run artifacts are committed as a record of what an evaluation actually found,
 for the same reason generation run artifacts are: not rebuildable byte-for-byte (a real
 model's output isn't reproducible), so the record is the deliverable.
+
+### `rankings/`
+
+**Populated (Stage 7).** Correctness classifications, scores, and a deterministic
+per-problem ranking derived from an evaluation run — objective ordering only, never a
+`chosen`/`rejected` label.
+
+- `runs/<ranking_run_id>/` — every `rank run` invocation creates its own self-contained
+  ranking run directory, `rank_YYYYMMDD_HHMMSS_xxxx`:
+  - `manifest.json` — which evaluation run this ranking covers, the classifier/scorer/
+    comparator versions, and status (never today's source tree).
+  - `assessments.jsonl` — one `CandidateAssessment` per candidate: `correctness`
+    (`correct`/`incorrect`/`indeterminate`), `pass_rate`, `score` (== `pass_rate`), plus
+    secondary metadata (`code_sha256`, `duplicate_of`, code length, strategy) joined from
+    the generation run for traceability — never used to compute the score.
+  - `rankings.jsonl` — one `RankingResult` per candidate: competition `rank` (1, 1, 3, 4,
+    5), `tie_group`, and `eligible_for_preference`. Indeterminate candidates are recorded
+    with `rank: null`, never dropped.
+  - `comparisons.jsonl` — every in-problem pairwise comparison (`A_BETTER`/`B_BETTER`/
+    `TIE`/`INDETERMINATE`) with a `score_margin`, so Step 8 never has to recompute one.
+  - `statistics.json` — always reconstructable from the two files above.
+
+Ranking never invents a preference: two fully-correct candidates, or two candidates that
+happen to share a pass rate, stay tied. Six of the ten real problems in
+`rank_20260817_161726_a84d` collapse to a single tie group and contribute no ordering at
+all — expected, not a bug.
+
+```bash
+python -m python_dpo evaluations list                     # find an evaluation run id
+python -m python_dpo rank run --evaluation-run-id EVAL_ID  # always a new ranking run
+python -m python_dpo rank run --evaluation-run-id EVAL_ID --resume RANK_ID  # continue one
+python -m python_dpo rankings list / show PROBLEM_ID / stats / validate RANK_ID
+```
+
+Ranking run artifacts are committed for the same reason evaluation run artifacts are: a
+record of what the real model's output actually scored, not a rebuildable artifact.
 
 ### `preferences/`
 

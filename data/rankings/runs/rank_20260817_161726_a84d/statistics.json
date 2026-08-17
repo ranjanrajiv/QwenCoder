@@ -1,0 +1,87 @@
+{
+  "candidates": 50,
+  "computed_at": "2026-08-17T16:17:34Z",
+  "correct": 30,
+  "fully_correct": 30,
+  "incorrect": 20,
+  "indeterminate": 0,
+  "partially_correct": 20,
+  "per_problem": {
+    "p001": {
+      "fully_correct": 5,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p002": {
+      "fully_correct": 0,
+      "indeterminate": 0,
+      "partially_correct": 5,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p003": {
+      "fully_correct": 5,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p004": {
+      "fully_correct": 3,
+      "indeterminate": 0,
+      "partially_correct": 2,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p005": {
+      "fully_correct": 5,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p006": {
+      "fully_correct": 5,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p007": {
+      "fully_correct": 0,
+      "indeterminate": 0,
+      "partially_correct": 5,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p008": {
+      "fully_correct": 2,
+      "indeterminate": 0,
+      "partially_correct": 3,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p009": {
+      "fully_correct": 5,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 5,
+      "zero_test_pass": 0
+    },
+    "p010": {
+      "fully_correct": 0,
+      "indeterminate": 0,
+      "partially_correct": 5,
+      "total": 5,
+      "zero_test_pass": 0
+    }
+  },
+  "preference_eligible_candidates": 50,
+  "problems": 10,
+  "ranking_run_id": "rank_20260817_161726_a84d",
+  "statistics_version": "1.0",
+  "tied_candidates": 49,
+  "zero_test_pass": 0
+}

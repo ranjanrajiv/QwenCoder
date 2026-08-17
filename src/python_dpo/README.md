@@ -1,10 +1,11 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 6 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 7 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
 configuration — the problem dataset, the model abstraction, candidate generation, a
-reliable per-run persistence layer, the isolated Docker sandbox, and the candidate test
-executor. No ranking or training code lives here yet.
+reliable per-run persistence layer, the isolated Docker sandbox, the candidate test
+executor, and candidate ranking. No preference-pair generation or training code lives
+here yet.
 
 ## Subpackages
 
@@ -56,11 +57,20 @@ never a preference judgement. `CandidateEvaluator` orchestrates; `EvaluationRepo
 and `EvaluationRunRepository` own persistence, mirroring `candidates/` and `runs/`. See
 its [README](evaluation/README.md).
 
+### [`ranking/`](ranking/)
+
+Introduced in Stage 7. Converts Stage 6's objective execution evidence into a
+correctness classification, a score, and a deterministic per-problem ranking with
+explicit tie groups and pairwise comparisons — never a `chosen`/`rejected` label, and
+never an LLM judge. `CorrectnessClassifier` → `CandidateScorer` → `CandidateRanker` /
+`CandidateComparator` orchestrate; `RankingRepository` and `RankingRunRepository` own
+persistence, mirroring `evaluation/`. See its [README](ranking/README.md).
+
 ## Files
 
 ### `__init__.py`
 
-Defines `__version__ = "0.6.0"` and `__all__ = ["__version__"]`. This is the single
+Defines `__version__ = "0.7.0"` and `__all__ = ["__version__"]`. This is the single
 source of truth for the package version — `pyproject.toml` reads it dynamically via
 `[tool.setuptools.dynamic]` so the two can never drift. Deliberately has no other
 imports, so `import python_dpo` stays cheap and has no dependency side effects.
@@ -94,8 +104,8 @@ keeps runtime dependencies minimal).
 - `build_parser() -> ArgumentParser` — a factory function (not a module-level parser)
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
-  `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`, and
-  the `preferences`/`run` placeholders.
+  `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`,
+  `rank`, `rankings`, and the `preferences`/`run` placeholders.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -124,7 +134,18 @@ keeps runtime dependencies minimal).
   the evaluator image is present before starting, so a missing image fails once with a
   clear `docker build` message rather than producing many identical infrastructure
   errors. `evaluations list` / `evaluations show` / `evaluations stats` inspect one
-  evaluation run's persisted results via `EvaluationRunRepository`.
+  evaluation run's persisted results via `EvaluationRunRepository`; `evaluations list`
+  with no argument lists evaluation runs themselves, mirroring `runs list`.
+- `rank run --evaluation-run-id [--problem-id] [--limit] [--resume] [--force]` (Stage 7)
+  runs `CorrectnessClassifier` → `CandidateScorer` → `CandidateRanker` /
+  `CandidateComparator` against an evaluation run's results. Unlike `evaluate run`, a bare
+  invocation **always creates a new ranking run** — matching `generate`'s default, not
+  `evaluate`'s — since ranking is pure in-memory computation with no GPU or Docker cost to
+  amortize; `--resume RANKING_RUN_ID` is the only way to continue one (any selection flag
+  combined with `--resume` is rejected, the manifest is authoritative), and `--force`
+  abandons a `--resume` request and starts fresh instead. `rankings list` / `rankings
+  show PROBLEM_ID` / `rankings stats` / `rankings validate` inspect and validate one
+  ranking run via `RankingRunRepository` / `validate_ranking_run`.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -159,9 +180,9 @@ on `PyYAML` (spec §6 exception).
   looking for `pyproject.toml`; falls back to a path relative to this file if none is
   found. This is what lets the CLI work without depending on a specific working
   directory (spec §11).
-- `Paths` — a frozen dataclass holding the six absolute data directory paths (`raw`,
-  `problems`, `candidates`, `evaluations`, `preferences`, `reports`). Its
-  `ensure_exists()` method creates all six with `mkdir(parents=True, exist_ok=True)`.
+- `Paths` — a frozen dataclass holding the seven absolute data directory paths (`raw`,
+  `problems`, `candidates`, `evaluations`, `rankings`, `preferences`, `reports`). Its
+  `ensure_exists()` method creates all seven with `mkdir(parents=True, exist_ok=True)`.
 - `SandboxConfig` — the Stage 5 `sandbox:` section, defined in `sandbox/config.py` and
   wrapped here by `_parse_sandbox`. Like `ModelConfig`, the typed object lives in the layer
   it belongs to, so the dependency runs one way: configuration imports the sandbox package,
@@ -172,6 +193,10 @@ on `PyYAML` (spec §6 exception).
   as `sandbox:`. Everything else the evaluation container needs — network mode, user,
   capabilities, resource limits — is inherited from `sandbox:` at run time by
   `build_evaluation_sandbox_config`, not re-specified here.
+- **No `ranking:` section (Stage 7).** Ranking has no tunable scoring parameters in v1 —
+  every run's algorithm versions (`ranking_version`/`scoring_version`/
+  `comparator_version`) and an empty `scoring_configuration` are recorded on
+  `RankingManifest` for future use, but nothing in `config.yaml` drives them today.
 - `GenerationSettings` — the `generation:` and `generation_strategies:` sections:
   `candidates_per_problem`, a validated `GenerationConfig`, the strategy list, and (Stage
   4) `retry: RetrySettings` from `generation.retry.max_attempts`. The typed model objects
