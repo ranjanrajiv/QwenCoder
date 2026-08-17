@@ -1,20 +1,37 @@
 # scripts/
 
-Empty placeholder directory, required by the spec's directory structure (spec §4).
-Currently contains only `.gitkeep` so git tracks the directory even though it has no
-real content yet.
+Standalone operational scripts that sit outside the `python_dpo` package's CLI — things
+that are run deliberately by a human rather than as part of the pipeline.
 
 ## Files
 
+### `smoke_real_model.sh`
+
+The manual real-model smoke test (spec 03 §34, §48). Loads the Qwen model configured in
+`config.yaml`, generates **one** candidate for **one** problem, extracts the Python,
+validates its syntax, persists it, and prints the result.
+
+```bash
+scripts/smoke_real_model.sh          # defaults to p001
+scripts/smoke_real_model.sh p004
+```
+
+This is **not** part of the automated test suite and must never run in CI: it downloads
+several GB of weights on first use and wants a GPU to finish quickly. The pytest suite is
+offline and CPU-only by design, so real-model inference has to be requested explicitly —
+that is the whole point of keeping it here as a script rather than a test.
+
+Prerequisites:
+
+```bash
+pip install -e '.[model]'          # the optional inference backend
+python -m python_dpo problems build # data/problems/problems.jsonl must exist
+```
+
+For gated or private models, export `HF_TOKEN` in your shell before running. Never write
+its value into `config.yaml`, source code, or any committed file.
+
 ### `.gitkeep`
 
-Zero-byte marker file. Git doesn't track empty directories, so this file exists purely
-to keep `scripts/` present in the repository until real scripts are added.
-
-## Intended future use
-
-Later pipeline steps are expected to add standalone operational scripts here — for
-example, dataset download/preparation helpers, one-off maintenance tasks, or
-orchestration scripts that sit outside the `python_dpo` package's public CLI. Nothing
-in this directory is implemented yet; per `CLAUDE.md`'s Scope Control rule, it stays
-empty until a later step explicitly calls for it.
+Zero-byte marker kept from Stage 1, when this directory was still empty. Harmless now
+that real scripts live here.

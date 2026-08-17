@@ -139,6 +139,77 @@ def test_bare_problems_prints_help_and_returns_nonzero():
     assert "usage" in result.stdout.lower()
 
 
+def test_generate_is_no_longer_a_placeholder():
+    assert "generate" not in _PLACEHOLDER_STAGES
+
+
+def test_generate_flags_parse():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--problem-id",
+            "p001",
+            "--num-candidates",
+            "3",
+            "--strategy",
+            "normal",
+            "--strategy",
+            "optimized",
+            "--force",
+            "--dry-run",
+            "--mock-model",
+        ]
+    )
+    assert args.command == "generate"
+    assert args.problem_id == "p001"
+    assert args.num_candidates == 3
+    assert args.strategies == ["normal", "optimized"]
+    assert args.force is True
+    assert args.dry_run is True
+    assert args.mock_model is True
+    assert callable(args.func)
+
+
+def test_generate_defaults_are_unset_so_config_supplies_them():
+    args = build_parser().parse_args(["generate"])
+    assert args.problem_id is None
+    assert args.limit is None
+    assert args.num_candidates is None
+    assert args.strategies is None
+    assert args.force is False
+    assert args.dry_run is False
+
+
+def test_generate_limit_parses():
+    assert build_parser().parse_args(["generate", "--limit", "2"]).limit == 2
+
+
+def test_generate_rejects_an_unknown_strategy():
+    result = _run_module("generate", "--strategy", "creative", "--dry-run")
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr.lower()
+
+
+def test_dry_run_prints_a_prompt_and_writes_nothing():
+    candidates_dir = PROJECT_ROOT / "data" / "candidates"
+    before = sorted(path.name for path in candidates_dir.iterdir())
+
+    result = _run_module("generate", "--problem-id", "p001", "--dry-run")
+
+    assert result.returncode == 0
+    assert "You are an expert Python programmer." in result.stdout
+    assert "def sum_even(numbers):" in result.stdout
+    assert "prompt_version=v1" in result.stdout
+    assert sorted(path.name for path in candidates_dir.iterdir()) == before
+
+
+def test_generate_reports_an_unknown_problem_id():
+    result = _run_module("generate", "--problem-id", "p999", "--dry-run")
+    assert result.returncode == 1
+    assert "p999" in result.stderr
+
+
 def test_no_subcommand_prints_help_and_returns_nonzero():
     result = _run_module()
     assert result.returncode == 1

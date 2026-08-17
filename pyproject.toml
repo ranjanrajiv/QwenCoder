@@ -15,6 +15,14 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Inference backend, deliberately optional: the core install and the whole test suite
+# run offline without it. Only `python -m python_dpo generate` against a real model
+# needs these.
+model = [
+    "torch>=2.2",
+    "transformers>=4.44",
+    "accelerate>=0.30",
+]
 
 [project.scripts]
 python-dpo = "python_dpo.cli:main"

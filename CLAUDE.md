@@ -22,6 +22,11 @@ validate the problem dataset. That execution is confined to
 can be routed to a sandboxed executor instead. Never pass model-generated code to the
 in-process executor.
 
+Generated candidates are inspected with `ast.parse` only. Building a syntax tree does not
+import, evaluate, or run anything, which is why `python_dpo.generation.validation` is
+allowed to touch untrusted code while nothing else is. `InProcessReferenceExecutor`
+remains the sole `exec()` in `src/`.
+
 ## Testing
 
 Every new component must have automated tests.

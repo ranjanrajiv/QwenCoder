@@ -1,9 +1,9 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 2 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 3 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
-configuration — plus the problem dataset in [`problems/`](problems/). No model inference,
-candidate generation, sandbox, evaluation, or training code lives here yet.
+configuration — the problem dataset, the model abstraction, and candidate generation. No
+sandbox, evaluation, ranking, or training code lives here yet.
 
 ## Subpackages
 
@@ -12,6 +12,22 @@ candidate generation, sandbox, evaluation, or training code lives here yet.
 The ground-truth layer: the problem/test-case schema, the ten curated problems and their
 trusted reference solutions, JSONL persistence, the swappable `ReferenceExecutor`, and
 dataset validation. See its [README](problems/README.md) for a file-by-file breakdown.
+
+### [`models/`](models/)
+
+The inference seam: the `ModelClient` protocol, `GenerationConfig`/`ModelConfig`, the
+lazily loaded `QwenModelClient`, and the deterministic `MockModelClient`. Nothing outside
+this package imports `torch` or `transformers`, and importing it loads neither.
+
+### [`generation/`](generation/)
+
+Prompt construction, the five generation strategies, code extraction, static
+(non-executing) validation, and the `CandidateGenerator` that orchestrates them.
+
+### [`candidates/`](candidates/)
+
+The `Candidate` and `GenerationFailure` schema plus the append-only JSONL repository that
+backs resume, `--force`, and duplicate detection.
 
 ## Files
 
@@ -44,6 +60,13 @@ keeps runtime dependencies minimal).
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus five
   subcommands: `problems`, `generate`, `evaluate`, `preferences`, `run`.
+- `generate` is implemented (Stage 3). `_cmd_generate` loads the dataset, narrows it with
+  `--problem-id` / `--limit`, resolves strategies, and either prints prompts (`--dry-run`)
+  or builds a client and runs `CandidateGenerator`. Prompts are built *before* any client
+  exists, so a dry run cannot load a model even by accident. `--mock-model` swaps in the
+  deterministic client for an offline end-to-end run. Generation failures are recorded and
+  reported but do **not** make the command fail — they are data, and the run genuinely
+  ran.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -81,8 +104,13 @@ on `PyYAML` (spec §6 exception).
 - `Paths` — a frozen dataclass holding the six absolute data directory paths (`raw`,
   `problems`, `candidates`, `evaluations`, `preferences`, `reports`). Its
   `ensure_exists()` method creates all six with `mkdir(parents=True, exist_ok=True)`.
-- `Config` — a frozen dataclass holding `project_name`, `paths`, `log_level`, and
-  `project_root`. `Config.load(path=None)` reads and validates `config.yaml` with
+- `GenerationSettings` — the Stage 3 `generation:` and `generation_strategies:` sections:
+  `candidates_per_problem`, a validated `GenerationConfig`, and the strategy list. The
+  typed model objects themselves live in `models/base.py`, so the dependency runs one way
+  — configuration imports the model layer, never the reverse.
+- `Config` — a frozen dataclass holding `project_name`, `paths`, `log_level`,
+  `project_root`, `model`, and `generation`. `Config.load(path=None)` reads and validates
+  `config.yaml` with
   `yaml.safe_load` (never `yaml.load`), checking every required key is present and of
   the right type, raising `ConfigError` otherwise.
 

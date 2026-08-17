@@ -11,3 +11,33 @@ paths:
 
 logging:
   level: INFO
+
+# Which model to load and how. The identifier lives here and never in source code, so
+# swapping models requires no code change. Never put HF_TOKEN or any other credential in
+# this file — authentication is read from the environment.
+model:
+  provider: transformers
+  name: "Qwen/Qwen2.5-Coder-3B-Instruct"
+  revision: null
+  device: auto
+  dtype: auto
+  trust_remote_code: false
+  # Reserved for a later stage (4-bit/8-bit). Must be null for now.
+  quantization: null
+
+generation:
+  candidates_per_problem: 5
+  temperature: 0.8
+  top_p: 0.95
+  max_new_tokens: 512
+  do_sample: true
+  repetition_penalty: 1.0
+  seed: 42
+
+# One candidate per strategy when candidates_per_problem is 5.
+generation_strategies:
+  - normal
+  - straightforward
+  - edge_case_focused
+  - alternative
+  - optimized

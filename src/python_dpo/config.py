@@ -6,6 +6,9 @@ from typing import Any
 
 import yaml
 
+from .generation.strategies import STRATEGIES, StrategyError, instruction_for
+from .models.base import GenerationConfig, ModelConfig, ModelError
+
 _REQUIRED_PATH_KEYS = (
     "raw_data",
     "problems",
@@ -14,6 +17,18 @@ _REQUIRED_PATH_KEYS = (
     "preferences",
     "reports",
 )
+
+# Keys accepted under `generation:`. The decoding parameters build a GenerationConfig;
+# candidates_per_problem is a pipeline setting rather than a decoding one.
+_GENERATION_CONFIG_KEYS = (
+    "temperature",
+    "top_p",
+    "max_new_tokens",
+    "do_sample",
+    "repetition_penalty",
+    "seed",
+)
+_GENERATION_KEYS = frozenset({"candidates_per_problem", *_GENERATION_CONFIG_KEYS})
 
 
 class ConfigError(Exception):
@@ -51,11 +66,87 @@ class Paths:
 
 
 @dataclass(frozen=True)
+class GenerationSettings:
+    """The `generation:` and `generation_strategies:` sections, validated."""
+
+    candidates_per_problem: int
+    config: GenerationConfig
+    strategies: tuple[str, ...]
+
+
+def _parse_model(raw: Any) -> ModelConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("config.yaml: missing required key 'model'")
+    try:
+        return ModelConfig.from_mapping(raw)
+    except ModelError as exc:
+        raise ConfigError(f"config.yaml: {exc}") from exc
+
+
+def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
+    if not isinstance(raw, dict):
+        raise ConfigError("config.yaml: missing required key 'generation'")
+
+    unknown = sorted(set(raw) - _GENERATION_KEYS)
+    if unknown:
+        raise ConfigError(f"config.yaml: generation: unknown key(s): {', '.join(unknown)}")
+
+    candidates_per_problem = raw.get("candidates_per_problem", 5)
+    if (
+        isinstance(candidates_per_problem, bool)
+        or not isinstance(candidates_per_problem, int)
+        or candidates_per_problem < 1
+    ):
+        raise ConfigError(
+            "config.yaml: generation.candidates_per_problem must be an integer of 1 or greater"
+        )
+
+    try:
+        config = GenerationConfig(
+            **{key: raw[key] for key in _GENERATION_CONFIG_KEYS if key in raw}
+        )
+    except ModelError as exc:
+        raise ConfigError(f"config.yaml: {exc}") from exc
+
+    if strategies_raw is None:
+        strategies = STRATEGIES
+    else:
+        if not isinstance(strategies_raw, list) or not strategies_raw:
+            raise ConfigError(
+                "config.yaml: generation_strategies must be a non-empty list of strategy names"
+            )
+        seen: set[str] = set()
+        for name in strategies_raw:
+            if not isinstance(name, str):
+                raise ConfigError(
+                    "config.yaml: generation_strategies entries must be strings"
+                )
+            try:
+                instruction_for(name)
+            except StrategyError as exc:
+                raise ConfigError(f"config.yaml: generation_strategies: {exc}") from exc
+            if name in seen:
+                raise ConfigError(
+                    f"config.yaml: generation_strategies: duplicate entry {name!r}"
+                )
+            seen.add(name)
+        strategies = tuple(strategies_raw)
+
+    return GenerationSettings(
+        candidates_per_problem=candidates_per_problem,
+        config=config,
+        strategies=strategies,
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     project_name: str
     paths: Paths
     log_level: str
     project_root: Path
+    model: ModelConfig
+    generation: GenerationSettings
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -106,9 +197,16 @@ class Config:
             reports=resolved_paths["reports"],
         )
 
+        model = _parse_model(raw.get("model"))
+        generation = _parse_generation(
+            raw.get("generation"), raw.get("generation_strategies")
+        )
+
         return cls(
             project_name=project_name,
             paths=paths,
             log_level=log_level,
             project_root=project_root,
+            model=model,
+            generation=generation,
         )
