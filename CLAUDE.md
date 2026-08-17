@@ -27,6 +27,11 @@ import, evaluate, or run anything, which is why `python_dpo.generation.validatio
 allowed to touch untrusted code while nothing else is. `InProcessReferenceExecutor`
 remains the sole `exec()` in `src/`.
 
+The persistence layer (`python_dpo.candidates`, `python_dpo.runs`) hashes candidate code
+with SHA-256 for duplicate detection and integrity checking. Hashing is not execution —
+`hashlib` never imports, evaluates, or runs the candidate. This layer never calls `exec`,
+`eval`, or `subprocess` on generated code.
+
 ## Testing
 
 Every new component must have automated tests.

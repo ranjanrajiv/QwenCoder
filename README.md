@@ -3,11 +3,13 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 3 — Qwen Candidate Generator.** The foundation (packaging, CLI,
-logging, typed configuration), the ground-truth layer (10 curated Python problems with
-trusted reference solutions and executable tests), and candidate generation with a Qwen
-Coder model are in place. No sandbox, evaluation, ranking, preference-pair generation, or
-training code has been implemented yet — and **no generated code is ever executed**.
+**Current status: Stage 4 — Candidate Persistence, Runs and Reproducibility.** The
+foundation (packaging, CLI, logging, typed configuration), the ground-truth layer (10
+curated Python problems with trusted reference solutions and executable tests), candidate
+generation with a Qwen Coder model, and a reliable per-run artifact store (manifests,
+SHA-256 hashes, atomic persistence, resume, retry, integrity validation) are in place. No
+sandbox, evaluation, ranking, preference-pair generation, or training code has been
+implemented yet — and **no generated code is ever executed**.
 
 ## Planned pipeline
 
@@ -31,13 +33,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first three stages are implemented. Everything from the Docker sandbox onward is
+The first four stages are implemented. Everything from the Docker sandbox onward is
 still a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Three have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Four have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -45,9 +47,10 @@ far:
 | 1 — Project Skeleton | Installable package, placeholder CLI, logging, typed config | Done |
 | 2 — Problem Dataset | 10 curated problems with reference solutions and tests (ground truth) | Done |
 | 3 — Qwen Candidate Generator | Model abstraction, 5 strategies, code extraction, candidate persistence | Done |
-| 4–12 — Sandboxed evaluation → DPO training | Docker sandbox, pytest evaluation, ranking, preference-pair generation, QLoRA + DPO training | Not started |
+| 4 — Candidate Persistence | Per-run directories, manifests, SHA-256 hashes, atomic writes, resume, retry, integrity validation | Done |
+| 5–12 — Sandboxed evaluation → DPO training | Docker sandbox, pytest evaluation, ranking, preference-pair generation, QLoRA + DPO training | Not started |
 
-Stages 4–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 5–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -57,19 +60,22 @@ see `CLAUDE.md`'s Scope Control rule.
 ```
 .
 ├── src/python_dpo/       # the installable package — see its README for file details
-│   ├── cli.py             # argparse CLI: problems, generate + placeholders
+│   ├── cli.py             # argparse CLI: problems, generate, runs, candidates + placeholders
 │   ├── config.py          # typed config.yaml loader
+│   ├── atomic_io.py       # Stage 4: durable JSON/JSONL primitives
 │   ├── logging_config.py  # stderr logging setup
 │   ├── problems/          # Stage 2: schema, catalog, storage, validation
 │   ├── models/            # Stage 3: ModelClient protocol, Qwen client, mock client
 │   ├── generation/        # Stage 3: strategies, prompts, extraction, orchestration
-│   └── candidates/        # Stage 3: candidate schema and append-only repository
+│   ├── candidates/        # Stage 3/4: candidate schema and run-scoped repository
+│   └── runs/              # Stage 4: run manifests, statistics, migration, validation
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
-│   └── candidates/candidates.jsonl # the Stage 3 candidates
+│   ├── candidates/candidates.jsonl # legacy Stage 3 flat file (read-only; see migrate)
+│   └── candidates/runs/            # Stage 4: one directory per generation run
 ├── scripts/               # operational scripts (real-model smoke test)
-├── config.yaml            # project name, data paths, logging, model, generation
+├── config.yaml            # project name, data paths, logging, model, generation, retry
 └── CLAUDE.md              # engineering rules for this project
 ```
 
@@ -114,7 +120,17 @@ Implemented:
 ```bash
 python -m python_dpo problems build      # validate the catalog and write problems.jsonl
 python -m python_dpo problems validate   # re-validate the persisted dataset
-python -m python_dpo generate            # generate candidates (see Stage 3 below)
+python -m python_dpo generate            # generate candidates into a new run (see Stage 3/4)
+python -m python_dpo generate --resume RUN_ID   # resume an interrupted run
+
+python -m python_dpo runs list                  # all runs, newest first
+python -m python_dpo runs show RUN_ID           # manifest + statistics
+python -m python_dpo runs validate RUN_ID       # integrity check (see Stage 4)
+
+python -m python_dpo candidates list RUN_ID     # candidates in a run
+python -m python_dpo candidates show RUN_ID CANDIDATE_ID
+python -m python_dpo candidates stats RUN_ID
+python -m python_dpo candidates migrate         # upgrade the legacy flat file into runs/
 ```
 
 The remaining subcommands exist as **placeholders only**. Each logs a "not implemented
@@ -305,37 +321,26 @@ verdicts: `def factorial(n): return 123` passes both and is still wrong.
 
 ### Candidate records
 
-`data/candidates/candidates.jsonl`, one candidate per line, written the moment it is
-generated so a killed run stays resumable. Both `raw_output` and the extracted `code` are
-kept — the raw text is the only way to debug an extraction that went wrong.
+As of Stage 4, candidates are written to a per-run directory rather than one flat file —
+see [Stage 4](#stage-4--candidate-persistence-runs-and-reproducibility) below. Both
+`raw_output` and the extracted `code` are kept — the raw text is the only way to debug an
+extraction that went wrong.
 
 ```json
 {
-  "candidate_id": "p001_c001", "problem_id": "p001", "run_id": "20260817_055411",
+  "candidate_id": "p001_c001", "problem_id": "p001", "run_id": "run_20260817_133700_a81f",
   "generation_index": 1, "strategy": "normal",
   "model": "Qwen/Qwen2.5-Coder-3B-Instruct", "provider": "transformers",
   "prompt_version": "v1", "extraction_format": "python_fence",
-  "syntax_valid": true, "function_name_valid": true, "duplicate_of": null
+  "syntax_valid": true, "function_name_valid": true, "duplicate_of": null,
+  "schema_version": "2.0", "code_sha256": "…", "attempt": 1
 }
 ```
 
-Failures that produced *no* candidate go to `generation_failures.jsonl` with a closed-set
+Failures that produced *no* candidate go to `failures.jsonl` with a closed-set
 `error_type`. Code that fails to parse is **not** a failure — it is stored as a candidate
 with `syntax_valid: false`, because it is the model's real output and precisely what a
 later stage needs on the rejected side of a preference pair.
-
-### Resume and `--force`
-
-`candidates.jsonl` is append-only. A repeated command resumes, skipping
-`(problem_id, generation_index)` pairs that already exist. `--force` mints a new `run_id`
-and appends, keeping the earlier run intact — so the same `candidate_id` may appear more
-than once and the file-wide key is `(run_id, candidate_id)`.
-
-```bash
-python -m python_dpo generate --problem-id p001 --num-candidates 5   # generates 5
-python -m python_dpo generate --problem-id p001 --num-candidates 5   # generates 0
-python -m python_dpo generate --problem-id p001 --num-candidates 5 --force  # new run
-```
 
 ### CLI options
 
@@ -345,7 +350,8 @@ python -m python_dpo generate --problem-id p001 --num-candidates 5 --force  # ne
 | `--limit N` | Generate for the first `N` problems |
 | `--num-candidates N` | Override `candidates_per_problem` for this run |
 | `--strategy S` | Use `S` instead of the configured list; repeatable |
-| `--force` | Start a new run instead of resuming |
+| `--resume RUN_ID` | Resume an incomplete run instead of creating a new one |
+| `--force` | With `--resume`, seed a new run from that run's manifest instead of resuming it |
 | `--dry-run` | Print prompts; load no model, write nothing |
 | `--mock-model` | Use the deterministic mock — a full offline pipeline run |
 
@@ -366,3 +372,84 @@ explicitly:
 pip install -e '.[model]'
 scripts/smoke_real_model.sh p001
 ```
+
+## Stage 4 — Candidate Persistence, Runs and Reproducibility
+
+### Purpose
+
+Stage 3's flat `candidates.jsonl` was a log: it had no record of what a run was asked to
+do, no way to tell an interrupted run from a finished one, and no integrity checks. Stage
+4 turns it into a reliable **experiment artifact store** — every generation belongs to a
+self-contained, independently auditable run directory that can be inspected, validated,
+and safely resumed after an interruption.
+
+### Run directories
+
+```
+data/candidates/runs/run_20260817_133700_a81f/
+├── manifest.json          # config snapshot, status, environment — the source of truth
+├── candidates.jsonl       # schema 2.0: SHA-256 hashes, attempt number
+├── failures.jsonl         # every generation that produced no candidate
+├── statistics.json        # always reconstructable from the two files above
+└── prompts/prompts.jsonl  # the exact prompt for every attempt, written before inference
+```
+
+Run ids are `run_YYYYMMDD_HHMMSS_xxxx` (a random hex suffix, not a UUID). A run's status
+is one of `created`, `running`, `completed`, `failed`, `interrupted`, `cancelled`, and is
+rewritten atomically at every transition.
+
+### Provenance and hashing
+
+Every candidate carries `code_sha256`, `prompt_sha256`, and `raw_output_sha256` —
+recomputed and checked on every load, so a tampered record cannot be read as valid.
+Duplicate detection uses these hashes and is **scoped to one run**: identical code from
+two different runs is recorded but never auto-linked, since cross-run duplication is
+often the point of comparing two experiments, not an error.
+
+### Resume, interruption, and `--force`
+
+`generate` always starts a **new** run. To continue an interrupted one:
+
+```bash
+python -m python_dpo generate --limit 3 --num-candidates 5   # ^C partway through
+python -m python_dpo runs show RUN_ID                         # status: interrupted
+python -m python_dpo generate --resume RUN_ID                 # fills exactly the gap
+python -m python_dpo runs show RUN_ID                         # status: completed
+```
+
+Already-persisted `(problem_id, generation_index)` pairs are never regenerated, and a
+resumed run's first N candidate records are byte-for-byte unchanged. `--force` is
+meaningful only with `--resume`: it seeds a **new** run from the original run's manifest
+and regenerates everything, leaving the original run untouched — Stage 4 never overwrites
+a candidate record in place.
+
+### Retry policy
+
+Infrastructure failures (`model_load`, `tokenizer`, `inference`, `timeout`) are retried up
+to `generation.retry.max_attempts` (default 2); every failed attempt is kept as its own
+record, and the eventual candidate records which `attempt` succeeded. Candidate failures
+(`empty_output`, `code_extraction`) are never retried — there is nothing to retry, the
+model's response itself was unusable.
+
+### Integrity validation
+
+```bash
+python -m python_dpo runs validate RUN_ID
+```
+
+Checks the manifest, JSONL structural integrity (including a torn write at the tail),
+per-record schema and hash correctness, duplicate candidate ids, `run_id`/`problem_id`
+consistency, `duplicate_of` targets, prompt-artifact presence, `statistics.json`
+freshness, and — for a run marked `completed` — that every requested candidate has an
+outcome. `--repair` truncates a torn tail before validating; it never touches a
+structurally sound but semantically wrong line.
+
+### Migrating the Stage 3 flat file
+
+```bash
+python -m python_dpo candidates migrate
+```
+
+Reads `data/candidates/candidates.jsonl` **read-only**, groups records by their existing
+`run_id`, upgrades them to schema 2.0 with hashes back-filled, and writes a proper run
+directory per run id found. The source file is never modified.

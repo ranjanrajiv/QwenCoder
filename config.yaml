@@ -33,6 +33,11 @@ generation:
   do_sample: true
   repetition_penalty: 1.0
   seed: 42
+  # Infrastructure failures (model-loading hiccups, transient inference errors) are
+  # retried up to this many attempts. Candidate failures (empty output, extraction
+  # failure) are never retried, regardless of this setting.
+  retry:
+    max_attempts: 2
 
 # One candidate per strategy when candidates_per_problem is 5.
 generation_strategies:

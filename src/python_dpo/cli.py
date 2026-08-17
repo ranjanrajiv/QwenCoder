@@ -4,9 +4,16 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from . import __version__
-from .candidates import CandidateRepository, CandidateStoreError
+from .atomic_io import JsonlError, repair_truncated_tail
+from .candidates import (
+    CANDIDATES_FILENAME as LEGACY_CANDIDATES_FILENAME,
+    CandidateError,
+    CandidateStoreError,
+)
+from .candidates.repository import FAILURES_FILENAME
 from .config import Config, ConfigError
 from .generation import (
     PROMPT_VERSION,
@@ -17,7 +24,7 @@ from .generation import (
     resolve_strategies,
 )
 from .logging_config import configure_logging
-from .models import PROVIDER_MOCK, MockModelClient, ModelError, QwenModelClient
+from .models import PROVIDER_MOCK, MockModelClient, ModelError, ModelLoadError, QwenModelClient
 from .problems import (
     DatasetError,
     InProcessReferenceExecutor,
@@ -29,6 +36,17 @@ from .problems import (
     save_problems,
     validate_dataset,
 )
+from .runs import (
+    MigrationError,
+    RunError,
+    RunNotFoundError,
+    RunRepository,
+    RunStatistics,
+    format_run_report,
+    migrate_flat_file,
+    validate_run,
+)
+from .runs.repository import MANIFEST_FILENAME
 
 logger = logging.getLogger("python_dpo.cli")
 
@@ -170,16 +188,94 @@ def _write_dry_run(
             sys.stdout.write(f"{header}\n{build_prompt(problem, strategies[index - 1])}\n\n")
 
 
-def _cmd_generate(args: argparse.Namespace, config: Config) -> int:
-    """Generate candidate solutions for the selected problems."""
-    path = dataset_path(config.paths.problems)
+def _run_repository(config: Config) -> RunRepository:
+    return RunRepository(config.paths.candidates / "runs")
+
+
+def _write_statistics(run_repo: RunRepository, run_id: str) -> RunStatistics:
+    manifest = run_repo.get_run(run_id)
+    repository = run_repo.candidates(run_id)
+    stats = RunStatistics.from_records(manifest, repository.load_all(), repository.load_failures())
+    run_repo.write_statistics(stats)
+    return stats
+
+
+def _execute_run(
+    run_repo: RunRepository,
+    manifest,
+    selected: Sequence[Problem],
+    client,
+) -> int:
+    """Run generation for an already-created (or resumed) manifest and settle its status."""
+    manifest = run_repo.start_run(manifest.run_id)
+    repository = run_repo.candidates(manifest.run_id)
+    generator = CandidateGenerator(client=client, repository=repository)
 
     try:
-        problems = load_problems(path)
-    except DatasetError as exc:
+        summary = generator.generate(selected, manifest)
+    except KeyboardInterrupt:
+        run_repo.interrupt_run(manifest.run_id)
+        _write_statistics(run_repo, manifest.run_id)
+        logger.warning(
+            "Run %s interrupted; resume with: python -m python_dpo generate --resume %s",
+            manifest.run_id,
+            manifest.run_id,
+        )
+        return 130
+    except ModelLoadError as exc:
+        failures = repository.load_failures()
+        last = failures[-1] if failures else None
+        run_repo.fail_run(
+            manifest.run_id,
+            error_type="model_load",
+            error_message=str(exc),
+            problem_id=last.problem_id if last else None,
+            generation_index=last.generation_index if last else None,
+        )
+        _write_statistics(run_repo, manifest.run_id)
+        logger.error("Aborting run %s: %s", manifest.run_id, exc)
+        return 1
+    except (CandidateStoreError, JsonlError, OSError) as exc:
+        run_repo.fail_run(manifest.run_id, error_type="inference", error_message=str(exc))
+        _write_statistics(run_repo, manifest.run_id)
         logger.error("%s", exc)
         return 1
 
+    stats = _write_statistics(run_repo, manifest.run_id)
+    complete = stats.problems_completed == stats.problems_requested
+
+    if complete:
+        run_repo.complete_run(manifest.run_id)
+        final_status = "completed"
+    else:
+        run_repo.interrupt_run(manifest.run_id)
+        final_status = "interrupted"
+
+    logger.info(
+        "Run %s %s | generated=%d skipped=%d failed=%d duplicates=%d retries=%d",
+        manifest.run_id,
+        final_status,
+        summary.generated,
+        summary.skipped,
+        summary.failed,
+        summary.duplicates,
+        summary.retries,
+    )
+    if summary.failed:
+        # Failures are data, not a broken run: they are recorded and observable
+        # (spec 03 section 26; spec 04 section 27).
+        logger.warning(
+            "%d generation(s) produced no candidate; see %s",
+            summary.failed,
+            repository.failures_path,
+        )
+
+    return 0 if final_status == "completed" else 1
+
+
+def _cmd_generate_fresh(
+    args: argparse.Namespace, config: Config, problems: Sequence[Problem], run_repo: RunRepository
+) -> int:
     try:
         selected = _select_problems(problems, args.problem_id, args.limit)
     except ValueError as exc:
@@ -211,62 +307,110 @@ def _cmd_generate(args: argparse.Namespace, config: Config) -> int:
         _write_dry_run(selected, strategies, count)
         return 0
 
-    repository = CandidateRepository(config.paths.candidates)
-
     try:
-        run_id = repository.new_run_id()
         client = _build_model_client(config, args.mock_model)
-    except (CandidateStoreError, ModelError) as exc:
+    except ModelError as exc:
         logger.error("%s", exc)
         return 1
 
+    manifest = run_repo.create_run(
+        requested_problem_ids=[p.id for p in selected],
+        requested_candidates_per_problem=count,
+        strategies=strategies,
+        model_config=config.model.to_dict(),
+        generation_config=config.generation.config.to_dict(),
+        prompt_version=PROMPT_VERSION,
+        retry=config.generation.retry.to_dict(),
+    )
     logger.info(
-        "Run %s | model=%s | %d problem(s) x %d candidate(s) | force=%s",
-        run_id,
+        "Run %s created | model=%s | %d problem(s) x %d candidate(s)",
+        manifest.run_id,
         client.name,
         len(selected),
         count,
-        args.force,
     )
 
-    generator = CandidateGenerator(
-        client=client,
-        repository=repository,
-        generation_config=config.generation.config,
-    )
+    return _execute_run(run_repo, manifest, selected, client)
+
+
+def _cmd_generate_resume(
+    args: argparse.Namespace, config: Config, problems: Sequence[Problem], run_repo: RunRepository
+) -> int:
+    if args.dry_run:
+        logger.error("--dry-run cannot be combined with --resume")
+        return 1
+
+    conflicting = [
+        flag
+        for flag, value in (
+            ("--problem-id", args.problem_id),
+            ("--limit", args.limit),
+            ("--num-candidates", args.num_candidates),
+            ("--strategy", args.strategies),
+        )
+        if value is not None
+    ]
+    if conflicting:
+        logger.error(
+            "%s cannot be combined with --resume; the run's manifest is authoritative",
+            ", ".join(conflicting),
+        )
+        return 1
 
     try:
-        summary = generator.generate(
-            selected,
-            count=count,
-            strategies=strategies,
-            run_id=run_id,
-            force=args.force,
-        )
-    except ModelError as exc:
-        logger.error("Aborting run %s: %s", run_id, exc)
-        return 1
-    except CandidateStoreError as exc:
+        source_manifest = run_repo.get_run(args.resume)
+    except RunNotFoundError as exc:
         logger.error("%s", exc)
         return 1
 
-    logger.info(
-        "Run %s complete | generated=%d skipped=%d failed=%d duplicates=%d",
-        summary.run_id,
-        summary.generated,
-        summary.skipped,
-        summary.failed,
-        summary.duplicates,
-    )
-    if summary.failed:
-        # Failures are data, not a broken run: they are recorded and observable, so the
-        # command still succeeds (spec 03 section 26).
-        logger.warning(
-            "%d generation(s) produced no candidate; see %s",
-            summary.failed,
-            repository.failures_path,
+    by_id = {p.id: p for p in problems}
+    missing = [pid for pid in source_manifest.requested_problem_ids if pid not in by_id]
+    if missing:
+        logger.error(
+            "run %s references unknown problem id(s): %s", args.resume, ", ".join(missing)
         )
-    return 0
+        return 1
+    selected = [by_id[pid] for pid in source_manifest.requested_problem_ids]
+
+    try:
+        client = _build_model_client(config, args.mock_model)
+    except ModelError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if args.force:
+        manifest = run_repo.create_run_from(source_manifest)
+        logger.info(
+            "Force: seeded new run %s from %s (original run left untouched)",
+            manifest.run_id,
+            args.resume,
+        )
+    else:
+        try:
+            manifest = run_repo.resume_run(args.resume)
+        except RunError as exc:
+            logger.error("%s", exc)
+            return 1
+        logger.info("Resuming run %s", manifest.run_id)
+
+    return _execute_run(run_repo, manifest, selected, client)
+
+
+def _cmd_generate(args: argparse.Namespace, config: Config) -> int:
+    """Generate candidate solutions for the selected problems, inside a run."""
+    path = dataset_path(config.paths.problems)
+
+    try:
+        problems = load_problems(path)
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    run_repo = _run_repository(config)
+
+    if args.resume:
+        return _cmd_generate_resume(args, config, problems, run_repo)
+    return _cmd_generate_fresh(args, config, problems, run_repo)
 
 
 def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -275,8 +419,8 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Generate candidate solutions for problems in the dataset.",
         description=(
             "Generate candidate Python implementations with the configured model and "
-            "persist them to data/candidates/candidates.jsonl. Candidates are not "
-            "executed or evaluated at this stage."
+            "persist them to a run directory under data/candidates/runs/. Candidates are "
+            "not executed or evaluated at this stage."
         ),
     )
     generate_parser.add_argument(
@@ -305,9 +449,19 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Use this strategy instead of the configured list. Repeatable.",
     )
     generate_parser.add_argument(
+        "--resume",
+        metavar="RUN_ID",
+        default=None,
+        help="Resume an incomplete run instead of creating a new one.",
+    )
+    generate_parser.add_argument(
         "--force",
         action="store_true",
-        help="Regenerate in a new run instead of resuming (existing records are kept).",
+        help=(
+            "Never resume: with --resume RUN_ID, seed a brand-new run from that run's "
+            "manifest and regenerate everything into it, leaving the original untouched. "
+            "Without --resume this has no effect, since generate always starts a new run."
+        ),
     )
     generate_parser.add_argument(
         "--dry-run",
@@ -320,6 +474,321 @@ def _add_generate_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Use the deterministic mock model instead of the configured one.",
     )
     generate_parser.set_defaults(func=_cmd_generate)
+
+
+# --------------------------------------------------------------------------------- runs
+
+
+def _cmd_runs_list(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    runs = run_repo.list_runs()
+    if not runs:
+        sys.stdout.write("No runs found.\n")
+        return 0
+
+    rows = []
+    for manifest in runs:
+        stats = run_repo.read_statistics(manifest.run_id)
+        candidates = stats.candidates_generated if stats else run_repo.candidates(manifest.run_id).count()
+        failures = (
+            stats.generation_failures
+            if stats
+            else len(run_repo.candidates(manifest.run_id).load_failures())
+        )
+        rows.append((manifest.run_id, manifest.status, candidates, failures))
+
+    header = f"{'RUN ID':<32}{'STATUS':<13}{'CANDIDATES':<12}{'FAILURES'}"
+    lines = [header]
+    lines.extend(f"{run_id:<32}{status:<13}{candidates:<12}{failures}" for run_id, status, candidates, failures in rows)
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_runs_show(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    try:
+        manifest = run_repo.get_run(args.run_id)
+    except RunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    stats = run_repo.read_statistics(args.run_id)
+
+    lines = [
+        "Run:",
+        f"  ID: {manifest.run_id}",
+        f"  Status: {manifest.status}",
+        f"  Source: {manifest.source}",
+        f"  Model: {manifest.model.get('name')}",
+        f"  Model revision: {manifest.model.get('revision')}",
+        f"  Prompt version: {manifest.prompt_version}",
+        f"  Problems: {manifest.requested_problems}",
+        f"  Candidates per problem: {manifest.requested_candidates_per_problem}",
+        f"  Strategies: {', '.join(manifest.strategies)}",
+        f"  Created at: {manifest.created_at}",
+        f"  Started at: {manifest.started_at}",
+        f"  Completed at: {manifest.completed_at}",
+        "",
+        "Generation configuration:",
+    ]
+    lines.extend(f"  {key}: {value}" for key, value in sorted(manifest.generation_config.items()))
+
+    if manifest.error is not None:
+        lines.extend(
+            [
+                "",
+                "Error:",
+                f"  type: {manifest.error.error_type}",
+                f"  message: {manifest.error.error_message}",
+                f"  at: {manifest.error.timestamp}",
+            ]
+        )
+
+    if stats is not None:
+        lines.extend(
+            [
+                "",
+                "Candidates:",
+                f"  Generated: {stats.candidates_generated} / {stats.candidates_requested}",
+                f"  Syntax valid: {stats.syntax_valid}",
+                f"  Syntax invalid: {stats.syntax_invalid}",
+                f"  Duplicates: {stats.duplicates}",
+                f"  Generation failures: {stats.generation_failures}",
+                f"  Retry attempts: {stats.retry_attempts}",
+            ]
+        )
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_runs_validate(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    run_dir = run_repo.run_dir(args.run_id)
+    if not (run_dir / MANIFEST_FILENAME).is_file():
+        logger.error("no run %r at %s", args.run_id, run_dir)
+        return 1
+
+    if args.repair:
+        for filename in (LEGACY_CANDIDATES_FILENAME, FAILURES_FILENAME):
+            removed = repair_truncated_tail(run_dir / filename)
+            if removed:
+                logger.warning(
+                    "Repaired %s: removed %d torn byte(s) from the tail", filename, removed
+                )
+
+    known_problem_ids: set[str] | None
+    try:
+        known_problem_ids = {p.id for p in load_problems(dataset_path(config.paths.problems))}
+    except DatasetError:
+        known_problem_ids = None
+
+    report = validate_run(run_dir, known_problem_ids)
+    sys.stdout.write(format_run_report(report))
+    return 0 if report.valid else 1
+
+
+def _add_runs_parser(subparsers: argparse._SubParsersAction) -> None:
+    runs_parser = subparsers.add_parser(
+        "runs",
+        help="Inspect generation runs.",
+        description="List, show, and validate generation runs.",
+    )
+    runs_parser.set_defaults(func=_make_help_handler(runs_parser))
+
+    runs_subparsers = runs_parser.add_subparsers(dest="runs_command")
+
+    list_parser = runs_subparsers.add_parser("list", help="List all generation runs.")
+    list_parser.set_defaults(func=_cmd_runs_list)
+
+    show_parser = runs_subparsers.add_parser("show", help="Show one run's manifest and statistics.")
+    show_parser.add_argument("run_id")
+    show_parser.set_defaults(func=_cmd_runs_show)
+
+    validate_parser = runs_subparsers.add_parser("validate", help="Validate one run's integrity.")
+    validate_parser.add_argument("run_id")
+    validate_parser.add_argument(
+        "--repair",
+        action="store_true",
+        help="Truncate a torn JSONL tail before validating (never touches a mid-file error).",
+    )
+    validate_parser.set_defaults(func=_cmd_runs_validate)
+
+
+# --------------------------------------------------------------------------- candidates
+
+
+def _cmd_candidates_list(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    run_dir = run_repo.run_dir(args.run_id)
+    if not (run_dir / MANIFEST_FILENAME).is_file():
+        logger.error("no run %r at %s", args.run_id, run_dir)
+        return 1
+
+    try:
+        candidates = run_repo.candidates(args.run_id).load_all()
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if args.problem_id:
+        candidates = [c for c in candidates if c.problem_id == args.problem_id]
+    if args.strategy:
+        candidates = [c for c in candidates if c.strategy == args.strategy]
+
+    if not candidates:
+        sys.stdout.write("No candidates found.\n")
+        return 0
+
+    header = f"{'CANDIDATE_ID':<16}{'PROBLEM_ID':<13}{'STRATEGY':<20}{'SYNTAX'}"
+    lines = [header]
+    lines.extend(
+        f"{c.candidate_id:<16}{c.problem_id:<13}{c.strategy:<20}{'valid' if c.syntax_valid else 'invalid'}"
+        for c in candidates
+    )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_candidates_show(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    run_dir = run_repo.run_dir(args.run_id)
+    if not (run_dir / MANIFEST_FILENAME).is_file():
+        logger.error("no run %r at %s", args.run_id, run_dir)
+        return 1
+
+    try:
+        candidate = run_repo.candidates(args.run_id).get(args.candidate_id)
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if candidate is None:
+        logger.error("no candidate %r in run %r", args.candidate_id, args.run_id)
+        return 1
+
+    lines = [
+        f"Candidate: {candidate.candidate_id}",
+        f"  Problem: {candidate.problem_id}",
+        f"  Strategy: {candidate.strategy}",
+        f"  Model: {candidate.model}",
+        f"  Model revision: {candidate.model_revision}",
+        f"  Prompt version: {candidate.prompt_version}",
+        f"  Syntax valid: {candidate.syntax_valid}",
+        f"  Function name valid: {candidate.function_name_valid}",
+        f"  Code hash: {candidate.code_sha256}",
+        f"  Duplicate of: {candidate.duplicate_of}",
+        f"  Attempt: {candidate.attempt}",
+        f"  Created at: {candidate.created_at}",
+    ]
+    # Raw model output and extracted code are withheld by default (spec 04 section 40).
+    if args.show_code:
+        lines.extend(["", "Code:", candidate.code])
+    if args.show_raw:
+        lines.extend(["", "Raw output:", candidate.raw_output])
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_candidates_stats(args: argparse.Namespace, config: Config) -> int:
+    run_repo = _run_repository(config)
+    try:
+        manifest = run_repo.get_run(args.run_id)
+    except RunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = run_repo.candidates(args.run_id)
+    try:
+        stats = RunStatistics.from_records(manifest, repository.load_all(), repository.load_failures())
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    lines = [
+        f"Problems: {stats.problems_requested} requested, {stats.problems_completed} completed",
+        f"Candidates requested: {stats.candidates_requested}",
+        f"Candidates generated: {stats.candidates_generated}",
+        f"Generation failures: {stats.generation_failures}",
+        f"Syntax valid: {stats.syntax_valid}",
+        f"Syntax invalid: {stats.syntax_invalid}",
+        f"Duplicates: {stats.duplicates}",
+        "",
+        "By strategy:",
+    ]
+    lines.extend(f"  {strategy:<20}{count}" for strategy, count in sorted(stats.candidates_by_strategy.items()))
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_candidates_migrate(args: argparse.Namespace, config: Config) -> int:
+    source = Path(args.source) if args.source else (config.paths.candidates / LEGACY_CANDIDATES_FILENAME)
+    if not source.is_file():
+        logger.error("no legacy candidates file at %s", source)
+        return 1
+
+    run_repo = _run_repository(config)
+    try:
+        manifests = migrate_flat_file(source, run_repo, force=args.force)
+    except (MigrationError, CandidateError, JsonlError) as exc:
+        logger.error("%s", exc)
+        return 1
+
+    for manifest in manifests:
+        logger.info(
+            "Migrated run %s (%d problem(s), source: migrated_from_flat_file)",
+            manifest.run_id,
+            manifest.requested_problems,
+        )
+    logger.info("Migrated %d run(s) from %s; %s left unchanged", len(manifests), source, source)
+    return 0
+
+
+def _add_candidates_parser(subparsers: argparse._SubParsersAction) -> None:
+    candidates_parser = subparsers.add_parser(
+        "candidates",
+        help="Inspect and migrate generated candidates.",
+        description="List, show, summarize, and migrate generated candidates.",
+    )
+    candidates_parser.set_defaults(func=_make_help_handler(candidates_parser))
+
+    candidates_subparsers = candidates_parser.add_subparsers(dest="candidates_command")
+
+    list_parser = candidates_subparsers.add_parser("list", help="List candidates in a run.")
+    list_parser.add_argument("run_id")
+    list_parser.add_argument("--problem-id", default=None)
+    list_parser.add_argument("--strategy", default=None, choices=STRATEGIES)
+    list_parser.set_defaults(func=_cmd_candidates_list)
+
+    show_parser = candidates_subparsers.add_parser("show", help="Show one candidate's metadata.")
+    show_parser.add_argument("run_id")
+    show_parser.add_argument("candidate_id")
+    show_parser.add_argument(
+        "--show-code", action="store_true", help="Also print the extracted code."
+    )
+    show_parser.add_argument(
+        "--show-raw", action="store_true", help="Also print the raw model output."
+    )
+    show_parser.set_defaults(func=_cmd_candidates_show)
+
+    stats_parser = candidates_subparsers.add_parser("stats", help="Show run statistics.")
+    stats_parser.add_argument("run_id")
+    stats_parser.set_defaults(func=_cmd_candidates_stats)
+
+    migrate_parser = candidates_subparsers.add_parser(
+        "migrate", help="Migrate the legacy flat candidates.jsonl into run directories."
+    )
+    migrate_parser.add_argument(
+        "--source",
+        default=None,
+        help="Path to the legacy candidates.jsonl (default: data/candidates/candidates.jsonl).",
+    )
+    migrate_parser.add_argument(
+        "--force", action="store_true", help="Overwrite an existing run directory."
+    )
+    migrate_parser.set_defaults(func=_cmd_candidates_migrate)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -339,6 +808,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_problems_parser(subparsers)
     _add_generate_parser(subparsers)
+    _add_runs_parser(subparsers)
+    _add_candidates_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

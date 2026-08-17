@@ -7,9 +7,10 @@ that are run deliberately by a human rather than as part of the pipeline.
 
 ### `smoke_real_model.sh`
 
-The manual real-model smoke test (spec 03 §34, §48). Loads the Qwen model configured in
-`config.yaml`, generates **one** candidate for **one** problem, extracts the Python,
-validates its syntax, persists it, and prints the result.
+The manual real-model smoke test (spec 03 §34, §48; spec 04 §55). Loads the Qwen model
+configured in `config.yaml`, generates **one** candidate for **one** problem into its own
+new run directory, extracts the Python, validates its syntax, persists it, and prints the
+run's manifest, the candidate's code, and a `runs validate` integrity check.
 
 ```bash
 scripts/smoke_real_model.sh          # defaults to p001

@@ -185,6 +185,35 @@ def test_generate_limit_parses():
     assert build_parser().parse_args(["generate", "--limit", "2"]).limit == 2
 
 
+def test_generate_resume_flag_parses():
+    args = build_parser().parse_args(["generate", "--resume", "run_20260817_133700_a81f"])
+    assert args.resume == "run_20260817_133700_a81f"
+
+
+def test_generate_resume_defaults_to_none():
+    assert build_parser().parse_args(["generate"]).resume is None
+
+
+def test_generate_resume_and_dry_run_together_is_rejected():
+    result = _run_module("generate", "--resume", "run_does_not_exist", "--dry-run")
+    assert result.returncode == 1
+    assert "--dry-run" in result.stderr and "--resume" in result.stderr
+
+
+def test_generate_resume_rejects_conflicting_selection_flags():
+    result = _run_module(
+        "generate", "--resume", "run_does_not_exist", "--problem-id", "p001"
+    )
+    assert result.returncode == 1
+    assert "--problem-id" in result.stderr
+
+
+def test_generate_resume_reports_an_unknown_run_id():
+    result = _run_module("generate", "--resume", "run_does_not_exist", "--mock-model")
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
 def test_generate_rejects_an_unknown_strategy():
     result = _run_module("generate", "--strategy", "creative", "--dry-run")
     assert result.returncode == 2
@@ -213,4 +242,99 @@ def test_generate_reports_an_unknown_problem_id():
 def test_no_subcommand_prints_help_and_returns_nonzero():
     result = _run_module()
     assert result.returncode == 1
+
+
+# --------------------------------------------------------------------------------- runs
+
+
+def test_runs_list_show_validate_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["runs", "list"])
+    assert args.command == "runs" and args.runs_command == "list"
+    assert callable(args.func)
+
+    args = parser.parse_args(["runs", "show", "run_20260817_133700_a81f"])
+    assert args.run_id == "run_20260817_133700_a81f"
+    assert callable(args.func)
+
+    args = parser.parse_args(["runs", "validate", "run_20260817_133700_a81f", "--repair"])
+    assert args.run_id == "run_20260817_133700_a81f"
+    assert args.repair is True
+    assert callable(args.func)
+
+
+def test_bare_runs_prints_help_and_returns_nonzero():
+    result = _run_module("runs")
+    assert result.returncode == 1
     assert "usage" in result.stdout.lower()
+
+
+def test_runs_list_exits_zero_regardless_of_run_count():
+    # Whether the real data/candidates/runs/ tree is empty or already holds runs, listing
+    # it must succeed — an empty store is not an error.
+    result = _run_module("runs", "list")
+    assert result.returncode == 0
+    assert "usage" not in result.stdout.lower()
+
+
+def test_runs_show_reports_an_unknown_run_id():
+    result = _run_module("runs", "show", "run_does_not_exist")
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
+def test_runs_validate_reports_an_unknown_run_id():
+    result = _run_module("runs", "validate", "run_does_not_exist")
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
+# --------------------------------------------------------------------------- candidates
+
+
+def test_candidates_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        ["candidates", "list", "run_1", "--problem-id", "p001", "--strategy", "normal"]
+    )
+    assert args.run_id == "run_1"
+    assert args.problem_id == "p001"
+    assert args.strategy == "normal"
+    assert callable(args.func)
+
+    args = parser.parse_args(
+        ["candidates", "show", "run_1", "p001_c001", "--show-code", "--show-raw"]
+    )
+    assert args.candidate_id == "p001_c001"
+    assert args.show_code is True
+    assert args.show_raw is True
+    assert callable(args.func)
+
+    args = parser.parse_args(["candidates", "stats", "run_1"])
+    assert args.run_id == "run_1"
+    assert callable(args.func)
+
+    args = parser.parse_args(["candidates", "migrate", "--source", "x.jsonl", "--force"])
+    assert args.source == "x.jsonl"
+    assert args.force is True
+    assert callable(args.func)
+
+
+def test_bare_candidates_prints_help_and_returns_nonzero():
+    result = _run_module("candidates")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_candidates_list_reports_an_unknown_run_id():
+    result = _run_module("candidates", "list", "run_does_not_exist")
+    assert result.returncode == 1
+    assert "run_does_not_exist" in result.stderr
+
+
+def test_candidates_migrate_reports_a_missing_source_file():
+    result = _run_module("candidates", "migrate", "--source", "/no/such/file.jsonl")
+    assert result.returncode == 1
+    assert "/no/such/file.jsonl" in result.stderr

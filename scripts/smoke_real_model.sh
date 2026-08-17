@@ -40,7 +40,21 @@ python -m python_dpo generate \
     --problem-id "$PROBLEM_ID" \
     --num-candidates 1
 
+# Stage 4: every `generate` call creates its own run directory under
+# data/candidates/runs/<run_id>/, so the run this invocation just created is whichever
+# one is newest.
+RUN_ID="$(python -c '
+from python_dpo.config import Config
+from python_dpo.runs import RunRepository
+
+repo = RunRepository(Config.load().paths.candidates / "runs")
+print(repo.list_runs()[0].run_id)
+')"
+
 echo
-echo "Candidate written to data/candidates/candidates.jsonl:"
-tail -n 1 data/candidates/candidates.jsonl \
-    | python -c 'import json, sys; r = json.loads(sys.stdin.read()); print(json.dumps({k: r[k] for k in ("candidate_id", "run_id", "model", "strategy", "extraction_format", "syntax_valid", "function_name_valid")}, indent=2)); print(); print(r["code"])'
+echo "Run: $RUN_ID"
+python -m python_dpo runs show "$RUN_ID"
+echo
+python -m python_dpo candidates show "$RUN_ID" "${PROBLEM_ID}_c001" --show-code
+echo
+python -m python_dpo runs validate "$RUN_ID"

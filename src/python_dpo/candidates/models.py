@@ -13,6 +13,12 @@ The two record types are deliberately disjoint (spec 03 sections 19.1, 26, 26.1)
   response, an inference error, or output containing nothing extractable.
 
 One generation produces one or the other, never both.
+
+Schema versioning (spec 04 sections 46, 47): ``schema_version`` is stamped on every record.
+``"1.0"`` is the Stage 3 shape (no hashes, no ``attempt``); ``"2.0"`` adds
+``code_sha256``/``prompt_sha256``/``raw_output_sha256`` and ``attempt``. A record missing
+``schema_version`` entirely is read as ``"1.0"`` — old data is never silently reinterpreted
+as if it had provenance it doesn't.
 """
 
 from __future__ import annotations
@@ -21,8 +27,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-# Written to generation_failures.jsonl. Closed set so failures can be counted and
-# compared across runs instead of grouped by free text (spec 03 section 27).
+from .hashing import sha256_text
+
+# Written to failures.jsonl. Closed set so failures can be counted and compared across
+# runs instead of grouped by free text (spec 03 section 27).
 ERROR_TYPES = frozenset(
     {
         "model_load",
@@ -34,7 +42,17 @@ ERROR_TYPES = frozenset(
     }
 )
 
+# Infrastructure failures may be retried; candidate failures are terminal for that
+# generation index (spec 04 section 28).
+INFRASTRUCTURE_ERROR_TYPES = frozenset({"model_load", "tokenizer", "inference", "timeout"})
+CANDIDATE_ERROR_TYPES = frozenset({"empty_output", "code_extraction"})
+assert INFRASTRUCTURE_ERROR_TYPES | CANDIDATE_ERROR_TYPES == ERROR_TYPES
+
 EXTRACTION_FORMATS = frozenset({"python_fence", "generic_fence", "plain", "unknown"})
+
+CANDIDATE_SCHEMA_VERSIONS = frozenset({"1.0", "2.0"})
+CANDIDATE_SCHEMA_VERSION = "2.0"
+LEGACY_CANDIDATE_SCHEMA_VERSION = "1.0"
 
 _CANDIDATE_FIELDS = frozenset(
     {
@@ -57,7 +75,18 @@ _CANDIDATE_FIELDS = frozenset(
         "duplicate_of",
         "generation_config",
         "created_at",
+        "schema_version",
+        "code_sha256",
+        "prompt_sha256",
+        "raw_output_sha256",
+        "attempt",
     }
+)
+
+# Fields introduced in schema 2.0. A legacy 1.0 record must not carry these — reading one
+# in must not silently invent provenance it never recorded (spec 04 section 46).
+_SCHEMA_2_ONLY_FIELDS = frozenset(
+    {"code_sha256", "prompt_sha256", "raw_output_sha256", "attempt"}
 )
 
 _FAILURE_FIELDS = frozenset(
@@ -69,8 +98,13 @@ _FAILURE_FIELDS = frozenset(
         "error_type",
         "error_message",
         "timestamp",
+        "schema_version",
+        "attempt",
+        "prompt_sha256",
+        "traceback",
     }
 )
+_FAILURE_SCHEMA_2_ONLY_FIELDS = frozenset({"attempt", "prompt_sha256"})
 
 
 class CandidateError(Exception):
@@ -125,6 +159,12 @@ class Candidate:
     only way to debug an extraction that went wrong, and the extracted code is what later
     stages evaluate. ``prompt`` is stored too, so a candidate stays interpretable even
     after the prompt template moves to a new version.
+
+    ``code_sha256``/``prompt_sha256``/``raw_output_sha256`` (spec 04 sections 16-18) are
+    verified, not merely stored: construction recomputes each from the corresponding text
+    and rejects a mismatch, so a tampered record cannot be built or loaded. Use
+    :meth:`Candidate.create` rather than the constructor directly when producing a new
+    (schema 2.0) record — it computes the three hashes for you.
     """
 
     candidate_id: str
@@ -146,6 +186,11 @@ class Candidate:
     model_revision: str | None = None
     syntax_error: str | None = None
     duplicate_of: str | None = None
+    schema_version: str = CANDIDATE_SCHEMA_VERSION
+    code_sha256: str | None = None
+    prompt_sha256: str | None = None
+    raw_output_sha256: str | None = None
+    attempt: int = 1
 
     def __post_init__(self) -> None:
         _require_text(self.candidate_id, "candidate_id")
@@ -194,6 +239,89 @@ class Candidate:
         if not isinstance(self.generation_config, dict):
             raise CandidateError("generation_config must be a mapping")
 
+        if self.schema_version not in CANDIDATE_SCHEMA_VERSIONS:
+            raise CandidateError(
+                "schema_version must be one of "
+                f"{', '.join(sorted(CANDIDATE_SCHEMA_VERSIONS))}, got {self.schema_version!r}"
+            )
+        _require_index(self.attempt, "attempt")
+
+        if self.schema_version == LEGACY_CANDIDATE_SCHEMA_VERSION:
+            for name in ("code_sha256", "prompt_sha256", "raw_output_sha256"):
+                if getattr(self, name) is not None:
+                    raise CandidateError(
+                        f"{name} must be null on a schema_version {LEGACY_CANDIDATE_SCHEMA_VERSION} "
+                        "record; hashes were introduced in schema 2.0"
+                    )
+        else:
+            expected = {
+                "code_sha256": sha256_text(self.code),
+                "prompt_sha256": sha256_text(self.prompt),
+                "raw_output_sha256": sha256_text(self.raw_output),
+            }
+            for name, expected_hash in expected.items():
+                actual = getattr(self, name)
+                if actual is None:
+                    raise CandidateError(f"{name} is required on a schema_version 2.0 record")
+                if actual != expected_hash:
+                    raise CandidateError(
+                        f"{name} does not match the stored {name.removesuffix('_sha256')}: "
+                        f"expected {expected_hash}, got {actual}"
+                    )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        candidate_id: str,
+        problem_id: str,
+        run_id: str,
+        generation_index: int,
+        strategy: str,
+        model: str,
+        provider: str,
+        prompt_version: str,
+        prompt: str,
+        raw_output: str,
+        code: str,
+        extraction_format: str,
+        syntax_valid: bool,
+        function_name_valid: bool,
+        generation_config: dict[str, Any],
+        created_at: str,
+        model_revision: str | None = None,
+        syntax_error: str | None = None,
+        duplicate_of: str | None = None,
+        attempt: int = 1,
+    ) -> Candidate:
+        """Build a schema 2.0 record, computing the three hashes from the text fields."""
+        return cls(
+            candidate_id=candidate_id,
+            problem_id=problem_id,
+            run_id=run_id,
+            generation_index=generation_index,
+            strategy=strategy,
+            model=model,
+            provider=provider,
+            prompt_version=prompt_version,
+            prompt=prompt,
+            raw_output=raw_output,
+            code=code,
+            extraction_format=extraction_format,
+            syntax_valid=syntax_valid,
+            function_name_valid=function_name_valid,
+            generation_config=generation_config,
+            created_at=created_at,
+            model_revision=model_revision,
+            syntax_error=syntax_error,
+            duplicate_of=duplicate_of,
+            schema_version=CANDIDATE_SCHEMA_VERSION,
+            code_sha256=sha256_text(code),
+            prompt_sha256=sha256_text(prompt),
+            raw_output_sha256=sha256_text(raw_output),
+            attempt=attempt,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "candidate_id": self.candidate_id,
@@ -215,6 +343,11 @@ class Candidate:
             "duplicate_of": self.duplicate_of,
             "generation_config": self.generation_config,
             "created_at": self.created_at,
+            "schema_version": self.schema_version,
+            "code_sha256": self.code_sha256,
+            "prompt_sha256": self.prompt_sha256,
+            "raw_output_sha256": self.raw_output_sha256,
+            "attempt": self.attempt,
         }
 
     @classmethod
@@ -224,16 +357,33 @@ class Candidate:
         unknown = sorted(set(data) - _CANDIDATE_FIELDS)
         if unknown:
             raise CandidateError(f"candidate: unknown field(s): {', '.join(unknown)}")
-        required = _CANDIDATE_FIELDS - {"model_revision", "syntax_error", "duplicate_of"}
+
+        schema_version = data.get("schema_version", LEGACY_CANDIDATE_SCHEMA_VERSION)
+        optional = {"model_revision", "syntax_error", "duplicate_of", "schema_version"}
+        if schema_version == LEGACY_CANDIDATE_SCHEMA_VERSION:
+            optional |= _SCHEMA_2_ONLY_FIELDS
+        required = _CANDIDATE_FIELDS - optional
         missing = sorted(required - set(data))
         if missing:
             raise CandidateError(f"candidate: missing required field(s): {', '.join(missing)}")
-        return cls(**data)
+
+        kwargs = dict(data)
+        kwargs["schema_version"] = schema_version
+        kwargs.setdefault("attempt", 1)
+        return cls(**kwargs)
 
 
 @dataclass(frozen=True)
 class GenerationFailure:
-    """A generation that produced no candidate (spec 03 sections 26, 27)."""
+    """A generation that produced no candidate (spec 03 sections 26, 27).
+
+    ``prompt_sha256`` links a failure back to its exact prompt in ``prompts.jsonl`` (spec
+    04 section 31) — required on schema 2.0 records, since the generator always builds and
+    persists the prompt before attempting inference. ``traceback`` exists for spec 04
+    section 27 but is deliberately left unpopulated by default: a Python traceback embeds
+    absolute filesystem paths, including the home directory CLAUDE.md's environment rule
+    (spec 04 section 33) forbids recording.
+    """
 
     run_id: str
     problem_id: str
@@ -242,6 +392,10 @@ class GenerationFailure:
     error_type: str
     error_message: str
     timestamp: str
+    schema_version: str = CANDIDATE_SCHEMA_VERSION
+    attempt: int = 1
+    prompt_sha256: str | None = None
+    traceback: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.run_id, "run_id")
@@ -257,6 +411,21 @@ class GenerationFailure:
                 f"got {self.error_type!r}"
             )
 
+        if self.schema_version not in CANDIDATE_SCHEMA_VERSIONS:
+            raise CandidateError(
+                "schema_version must be one of "
+                f"{', '.join(sorted(CANDIDATE_SCHEMA_VERSIONS))}, got {self.schema_version!r}"
+            )
+        _require_index(self.attempt, "attempt")
+        _require_optional_text(self.prompt_sha256, "prompt_sha256")
+        _require_optional_text(self.traceback, "traceback")
+
+        if self.schema_version == LEGACY_CANDIDATE_SCHEMA_VERSION and self.prompt_sha256 is not None:
+            raise CandidateError(
+                f"prompt_sha256 must be null on a schema_version {LEGACY_CANDIDATE_SCHEMA_VERSION} "
+                "record; hashes were introduced in schema 2.0"
+            )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -266,6 +435,10 @@ class GenerationFailure:
             "error_type": self.error_type,
             "error_message": self.error_message,
             "timestamp": self.timestamp,
+            "schema_version": self.schema_version,
+            "attempt": self.attempt,
+            "prompt_sha256": self.prompt_sha256,
+            "traceback": self.traceback,
         }
 
     @classmethod
@@ -277,9 +450,20 @@ class GenerationFailure:
             raise CandidateError(
                 f"generation failure: unknown field(s): {', '.join(unknown)}"
             )
-        missing = sorted(_FAILURE_FIELDS - set(data))
+
+        schema_version = data.get("schema_version", LEGACY_CANDIDATE_SCHEMA_VERSION)
+        optional = {"schema_version", "traceback"}
+        if schema_version == LEGACY_CANDIDATE_SCHEMA_VERSION:
+            optional |= _FAILURE_SCHEMA_2_ONLY_FIELDS
+        required = _FAILURE_FIELDS - optional
+        missing = sorted(required - set(data))
         if missing:
             raise CandidateError(
                 f"generation failure: missing required field(s): {', '.join(missing)}"
             )
-        return cls(**data)
+
+        kwargs = dict(data)
+        kwargs["schema_version"] = schema_version
+        kwargs.setdefault("attempt", 1)
+        kwargs.setdefault("prompt_sha256", None)
+        return cls(**kwargs)

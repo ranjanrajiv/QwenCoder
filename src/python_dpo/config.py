@@ -28,7 +28,47 @@ _GENERATION_CONFIG_KEYS = (
     "repetition_penalty",
     "seed",
 )
-_GENERATION_KEYS = frozenset({"candidates_per_problem", *_GENERATION_CONFIG_KEYS})
+_GENERATION_KEYS = frozenset({"candidates_per_problem", "retry", *_GENERATION_CONFIG_KEYS})
+
+DEFAULT_MAX_ATTEMPTS = 2
+
+
+@dataclass(frozen=True)
+class RetrySettings:
+    """Retry policy for infrastructure failures (spec 04 sections 28, 29).
+
+    ``max_attempts=1`` means "no retry" — the first failure is terminal, matching
+    candidate failures (empty output, extraction failure), which are never retried
+    regardless of this setting.
+    """
+
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.max_attempts, bool)
+            or not isinstance(self.max_attempts, int)
+            or self.max_attempts < 1
+        ):
+            raise ConfigError(
+                "config.yaml: generation.retry.max_attempts must be an integer of 1 or greater"
+            )
+
+    def to_dict(self) -> dict[str, int]:
+        return {"max_attempts": self.max_attempts}
+
+    @classmethod
+    def from_mapping(cls, data: Any) -> RetrySettings:
+        if data is None:
+            return cls()
+        if not isinstance(data, dict):
+            raise ConfigError("config.yaml: generation.retry must be a mapping")
+        unknown = sorted(set(data) - {"max_attempts"})
+        if unknown:
+            raise ConfigError(
+                f"config.yaml: generation.retry: unknown key(s): {', '.join(unknown)}"
+            )
+        return cls(max_attempts=data.get("max_attempts", DEFAULT_MAX_ATTEMPTS))
 
 
 class ConfigError(Exception):
@@ -72,6 +112,7 @@ class GenerationSettings:
     candidates_per_problem: int
     config: GenerationConfig
     strategies: tuple[str, ...]
+    retry: RetrySettings
 
 
 def _parse_model(raw: Any) -> ModelConfig:
@@ -108,6 +149,8 @@ def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
     except ModelError as exc:
         raise ConfigError(f"config.yaml: {exc}") from exc
 
+    retry = RetrySettings.from_mapping(raw.get("retry"))
+
     if strategies_raw is None:
         strategies = STRATEGIES
     else:
@@ -136,6 +179,7 @@ def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
         candidates_per_problem=candidates_per_problem,
         config=config,
         strategies=strategies,
+        retry=retry,
     )
 
 

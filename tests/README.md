@@ -120,30 +120,101 @@ The Stage 3 model layer, with no GPU, weights, or network involved.
 - **Schema** — deterministic zero-padded ids; round-trip; a syntax-invalid candidate is a
   *valid record*; each validation rule rejected individually; unknown and missing fields;
   `error_type` closed set, including that `syntax_error` is not a member.
-- **Repository** — append/load round-trip; records readable before a run finishes;
-  failures kept in a separate file; `existing_keys` driving resume; a previously failed
-  generation *not* blocking a retry; `code_index` reporting the earliest match and scoping
-  per problem; `latest_by_candidate_id` preferring the newer run; run-id disambiguation
-  within one second (including a failure-only run); malformed lines rejected with a line
-  number.
+- **Schema versioning (Stage 4)** — `Candidate.create` computes and verifies all three
+  SHA-256 hashes; a tampered hash is rejected at construction; a schema-2.0 record
+  requires every hash; a legacy 1.0 record has null hashes and still loads; a record
+  missing `schema_version` entirely reads as 1.0; a 1.0 record populated with a hash is
+  rejected; the same shape for `GenerationFailure.prompt_sha256`.
+- **Repository** — save/load round-trip; records readable before a run finishes; failures
+  kept in a separate `failures.jsonl`; prompts persisted and loadable; `existing_keys`
+  driving resume, run-scoped; a previously failed generation *not* blocking a retry;
+  `code_index` keyed on `code_sha256`, scoped per problem; the spec 04 §23 lookup API
+  (`get`, `exists`, `list`, `count`, `find_by_problem`, `find_by_hash`); malformed lines
+  and a truncated final line each rejected with a line number.
+
+### `test_atomic_io.py`
+
+The durable-write primitives underneath every repository (spec 04 §21).
+
+- `atomic_write_json` — creates, replaces, leaves no `.tmp` behind, creates parent
+  directories, and a failed replace leaves the original file untouched.
+- `append_jsonl` / `iter_jsonl` — one complete line per append; a missing file yields
+  nothing; invalid JSON, a non-object line, and a blank line are each rejected with a line
+  number; a final line with no trailing newline is detected as a torn write, distinct from
+  a mid-file corruption (which is also rejected, but with its own message).
+- `repair_truncated_tail` — removes exactly the torn bytes and nothing else; a no-op on a
+  well-formed file; never touches a corrupt line earlier in the file.
+
+### `test_runs.py`
+
+`RunManifest`, `RunStatistics`, and `RunRepository` (spec 04).
+
+- **Manifest** — round-trip; unknown status rejected; `requested_problems` derived;
+  strategies-count/candidates-per-problem mismatch rejected; duplicate problem ids
+  rejected; missing `retry.max_attempts` rejected; `with_status` enforces the allowed
+  transition graph and carries a `RunFailure`.
+- **Statistics** — round-trip; every counter matches a hand-count of given records;
+  `problems_completed` requires every requested index to have *an outcome* (candidate or
+  failure), not that every one succeeded; `retry_attempts` counts only infrastructure
+  failures; duplicates counted.
+- **Environment** — `capture_environment()` never contains a username, home path, or
+  token.
+- **Repository** — run-id format and uniqueness; create/get/list (newest first, tie-broken
+  by run id); the full status lifecycle (`created → running → completed`,
+  `interrupted → running`); resume refuses a `completed` run; `fail_run` records the
+  error; `create_run_from` seeds a new run with a fresh id and identical configuration;
+  statistics write/read round-trip; `candidates(run_id)` returns a repository scoped to
+  that run's directory.
+
+### `test_run_validation.py`
+
+One test per spec 04 §51 corruption, each built by mutating a real, valid, completed run
+directory produced by the actual generator and mock model: missing manifest, malformed
+JSON, duplicate candidate id, wrong `code_sha256` (names the candidate), missing required
+field, mismatched `run_id`, unknown `problem_id`, drifted `statistics.json`, a truncated
+tail, a dangling `duplicate_of`, a `completed` run with missing work, and a prompt hash
+absent from `prompts.jsonl`. Each must fail loudly; a clean run must still pass.
+
+### `test_migration.py`
+
+Migrating the Stage 3 flat file into run directories (spec 04 §46): hashes are
+back-filled and `schema_version` stamped; the source file is byte-identical afterward; the
+migrated run passes `validate_run`; migrating twice without `--force` refuses to clobber;
+`--force` overwrites cleanly rather than duplicating records; multiple `run_id`s in one
+source file produce multiple run directories.
 
 ### `test_generation_pipeline.py`
 
-The end-to-end generation tests (spec 03 §46, §47), all driven by `MockModelClient`.
+The end-to-end generation tests (spec 03 §46, §47; spec 04 §42, §49, §50), all driven by
+`MockModelClient` against real run directories built through `RunRepository`.
 
 - **Integration** — one problem, five candidates: five records, correct problem id, unique
   ids in the documented shape, all five strategies represented, raw output kept alongside
-  extracted code, syntax validated, config embedded, all persisted, no failures file.
-- **Resume** — a second run generates nothing and, critically, `call_count` proves the
-  model was never asked; `--force` appends a new run with the earlier one preserved
-  verbatim; a previously failed generation is retried.
+  extracted code, syntax validated, config embedded, hashes verified, all persisted, no
+  failures file; prompts persisted before inference and linked by hash to their candidate.
+- **Resume** — a second `generate()` call against the *same* run directory generates
+  nothing and, critically, `call_count` proves the model was never asked; `--force`
+  (`create_run_from`) seeds a brand-new run with the earlier one preserved byte-for-byte;
+  a previously failed generation is retried on resume.
+- **Retries** — an infrastructure failure followed by success keeps the attempt-1 failure
+  record and stamps `attempt=2` on the candidate; exhausting `max_attempts` leaves only
+  failure records; a candidate failure (empty output) never consumes a retry attempt.
 - **Failures** — empty response, unextractable output, and inference errors each produce a
   failure record and no candidate while the run continues; a model-load failure records
   one failure and aborts; **a syntax error produces a candidate and no failure record**;
   a wrong function name is recorded rather than rejected.
-- **Duplicates** — exact duplicates flagged and kept, detection spanning runs so a resumed
-  run notices it reproduced earlier code, a regenerated candidate not flagged as a
-  duplicate of itself, and distinct code left unflagged.
+- **Duplicates** — exact duplicates flagged and kept within a run; duplicates are **not**
+  auto-linked across runs even when the deterministic mock reproduces identical code
+  (spec 04 §20) — `find_by_hash` is the tool for that cross-run analysis instead; distinct
+  code left unflagged.
+- **§42/§49 mandatory resume test** — 3 problems × 5 candidates; a scripted
+  `KeyboardInterrupt` after 7 candidates leaves the run `interrupted`; resuming fills the
+  remaining 8; the final 15 candidates' first 7 records are byte-for-byte unchanged; the
+  run ends `completed`.
+- **§50 reproducibility test** — two runs with identical problems, mock, prompt version,
+  generation config, and strategies produce identical `code_sha256` per
+  `(problem_id, generation_index)`, differing only in `run_id`. Real-model reproducibility
+  is explicitly not claimed.
 
 ### `test_no_heavy_imports.py`
 
