@@ -593,3 +593,90 @@ def test_rankings_validate_reports_an_unknown_ranking_run_id():
     result = _run_module("rankings", "validate", "rank_does_not_exist")
     assert result.returncode == 1
     assert "rank_does_not_exist" in result.stderr
+
+
+# ---------------------------------------------------------------------------- preferences
+
+
+def test_preferences_is_not_a_placeholder():
+    assert "preferences" not in _PLACEHOLDER_STAGES
+
+
+def test_preferences_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["preferences", "generate", "--ranking-run-id", "rank_x"])
+    assert args.command == "preferences" and args.preferences_command == "generate"
+    assert args.ranking_run_id == "rank_x"
+    assert args.policy is None and args.margin is None
+    assert args.max_pairs_per_problem is None and args.split_seed is None
+    assert args.resume is None and args.force is False
+    assert callable(args.func)
+
+    args = parser.parse_args(
+        [
+            "preferences", "generate", "--ranking-run-id", "rank_x",
+            "--policy", "margin", "--margin", "0.3", "--max-pairs-per-problem", "5",
+            "--split-seed", "7", "--resume", "pref_x", "--force",
+        ]
+    )
+    assert args.policy == "margin" and args.margin == 0.3
+    assert args.max_pairs_per_problem == 5 and args.split_seed == 7
+    assert args.resume == "pref_x" and args.force is True
+
+    args = parser.parse_args(["preferences", "list"])
+    assert args.preferences_command == "list"
+    assert callable(args.func)
+
+    args = parser.parse_args(
+        ["preferences", "show", "--preference-run-id", "pref_x", "--preference-id", "pref_y"]
+    )
+    assert args.preference_run_id == "pref_x" and args.preference_id == "pref_y"
+    assert args.show_code is False
+    assert callable(args.func)
+
+    args = parser.parse_args(["preferences", "stats", "--preference-run-id", "pref_x"])
+    assert args.preference_run_id == "pref_x"
+    assert callable(args.func)
+
+    args = parser.parse_args(["preferences", "validate", "--preference-run-id", "pref_x"])
+    assert args.preference_run_id == "pref_x"
+    assert callable(args.func)
+
+
+def test_bare_preferences_prints_help_and_returns_nonzero():
+    result = _run_module("preferences")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_preferences_generate_requires_ranking_run_id():
+    result = _run_module("preferences", "generate")
+    assert result.returncode == 2
+    assert "--ranking-run-id" in result.stderr
+
+
+def test_preferences_generate_reports_an_unknown_ranking_run_id():
+    result = _run_module("preferences", "generate", "--ranking-run-id", "rank_does_not_exist")
+    assert result.returncode == 1
+    assert "rank_does_not_exist" in result.stderr
+
+
+def test_preferences_show_reports_an_unknown_preference_run_id():
+    result = _run_module(
+        "preferences", "show", "--preference-run-id", "pref_does_not_exist", "--preference-id", "x"
+    )
+    assert result.returncode == 1
+    assert "pref_does_not_exist" in result.stderr
+
+
+def test_preferences_stats_reports_an_unknown_preference_run_id():
+    result = _run_module("preferences", "stats", "--preference-run-id", "pref_does_not_exist")
+    assert result.returncode == 1
+    assert "pref_does_not_exist" in result.stderr
+
+
+def test_preferences_validate_reports_an_unknown_preference_run_id():
+    result = _run_module("preferences", "validate", "--preference-run-id", "pref_does_not_exist")
+    assert result.returncode == 1
+    assert "pref_does_not_exist" in result.stderr

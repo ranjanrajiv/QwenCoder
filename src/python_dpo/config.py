@@ -10,6 +10,8 @@ from .evaluation.config import EvaluationConfig
 from .evaluation.errors import EvaluationConfigError
 from .generation.strategies import STRATEGIES, StrategyError, instruction_for
 from .models.base import GenerationConfig, ModelConfig, ModelError
+from .preferences.config import PreferenceConfig
+from .preferences.errors import PreferenceConfigError
 from .sandbox.config import SandboxConfig
 from .sandbox.errors import SandboxConfigError
 
@@ -157,6 +159,19 @@ def _parse_evaluation(raw: Any) -> EvaluationConfig:
         raise ConfigError(f"config.yaml: {exc}") from exc
 
 
+def _parse_preferences(raw: Any) -> PreferenceConfig:
+    """Parse the optional `preferences:` section, defaulting when it is absent.
+
+    `preferences/` raises its own PreferenceConfigError rather than ConfigError, so that
+    package never has to import this one; translating it here keeps the dependency
+    one-way, exactly as with EvaluationConfigError above.
+    """
+    try:
+        return PreferenceConfig.from_mapping(raw)
+    except PreferenceConfigError as exc:
+        raise ConfigError(f"config.yaml: {exc}") from exc
+
+
 def _parse_generation(raw: Any, strategies_raw: Any) -> GenerationSettings:
     if not isinstance(raw, dict):
         raise ConfigError("config.yaml: missing required key 'generation'")
@@ -226,6 +241,7 @@ class Config:
     generation: GenerationSettings
     sandbox: SandboxConfig
     evaluation: EvaluationConfig
+    preferences: PreferenceConfig
 
     @classmethod
     def load(cls, path: Path | None = None) -> Config:
@@ -283,6 +299,7 @@ class Config:
         )
         sandbox = _parse_sandbox(raw.get("sandbox"))
         evaluation = _parse_evaluation(raw.get("evaluation"))
+        preferences = _parse_preferences(raw.get("preferences"))
 
         return cls(
             project_name=project_name,
@@ -293,4 +310,5 @@ class Config:
             generation=generation,
             sandbox=sandbox,
             evaluation=evaluation,
+            preferences=preferences,
         )

@@ -50,6 +50,26 @@ from .problems import (
     save_problems,
     validate_dataset,
 )
+from .preferences import (
+    BUILDER_VERSION,
+    POLICIES,
+    PREFERENCE_VERSION,
+    PreferencePairBuilder,
+    PreferencePolicyError,
+    PreferenceRunError,
+    PreferenceRunNotFoundError,
+    PreferenceRunRepository,
+    PreferenceStatistics,
+    ProblemSplitter,
+    build_quality_report,
+    derive_candidates_considered,
+    format_pair_detail,
+    format_preference_report,
+    format_preference_statistics,
+    make_policy,
+    validate_preference_run,
+)
+from .preferences import RUN_MANIFEST_FILENAME as PREFERENCE_MANIFEST_FILENAME
 from .ranking import (
     CLASSIFIER_VERSION,
     COMPARATOR_VERSION,
@@ -62,6 +82,7 @@ from .ranking import (
     RankingRunNotFoundError,
     RankingRunRepository,
     RankingStatistics,
+    RankingStoreError,
     format_ranking_report,
     format_ranking_statistics,
     format_ranking_table,
@@ -89,7 +110,6 @@ from .sandbox import (
 logger = logging.getLogger("python_dpo.cli")
 
 _PLACEHOLDER_STAGES = {
-    "preferences": "Preference pair generation",
     "run": "Full pipeline run",
 }
 
@@ -1687,6 +1707,406 @@ def _add_rankings_parser(subparsers: argparse._SubParsersAction) -> None:
     validate_parser.set_defaults(func=_cmd_rankings_validate)
 
 
+# ------------------------------------------------------------------------- preferences
+
+
+def _preference_run_repository(config: Config) -> PreferenceRunRepository:
+    return PreferenceRunRepository(config.paths.preferences / "runs")
+
+
+def _finalize_preference_run(
+    preference_run_repo: PreferenceRunRepository,
+    preference_run_id: str,
+    assessments_by_problem: dict,
+) -> PreferenceStatistics:
+    """(Re)write every derived artifact — ``statistics.json``, ``split_manifest.json``,
+    ``quality_report.json``, and the training JSONL files — from what is durably
+    persisted in ``metadata.jsonl``/``rejections.jsonl`` so far (spec sections 54, 64, 75).
+    Called both on normal completion and on interruption, mirroring
+    ``_write_ranking_statistics``'s re-fetch-by-id pattern rather than trusting a
+    possibly-stale in-memory manifest.
+    """
+    manifest = preference_run_repo.get_run(preference_run_id)
+    repository = preference_run_repo.results(preference_run_id)
+    pairs = repository.load_pairs()
+    rejections = repository.load_rejections()
+
+    stats = PreferenceStatistics.from_records(
+        manifest,
+        pairs,
+        rejections,
+        candidates_considered=derive_candidates_considered(pairs, rejections),
+    )
+    preference_run_repo.write_statistics(stats)
+
+    training_problem_ids = {p.problem_id for p in pairs if not p.duplicate_training_record}
+    split_manifest = ProblemSplitter(
+        ratios=manifest.split_ratios, seed=manifest.split_seed
+    ).split(training_problem_ids)
+    preference_run_repo.write_split_manifest(preference_run_id, split_manifest)
+    repository.write_dataset(split_manifest)
+
+    problem_correctness = {
+        problem_id: [a.correctness for a in assessments]
+        for problem_id, assessments in assessments_by_problem.items()
+    }
+    quality_report = build_quality_report(manifest, pairs, problem_correctness)
+    preference_run_repo.write_quality_report(quality_report)
+
+    return stats
+
+
+def _cmd_preferences_generate(args: argparse.Namespace, config: Config) -> int:
+    """Build preference pairs from a ranking run (spec sections 78, 83, 84).
+
+    Follows ``rank run``'s shape, not ``evaluate run``'s resume-by-default: a bare
+    invocation always creates a **new** preference run; ``--resume PREFERENCE_RUN_ID`` is
+    the only way to continue one, and ``--force`` mints a new run rather than modifying an
+    existing one (spec section 84) — every policy/margin combination the same ranking run
+    produces coexists (spec section 48).
+    """
+    ranking_run_repo = _ranking_run_repository(config)
+    try:
+        ranking_manifest = ranking_run_repo.get_run(args.ranking_run_id)
+    except RankingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    try:
+        assessments = ranking_run_repo.results(args.ranking_run_id).load_assessments()
+    except RankingStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+    if not assessments:
+        logger.error(
+            "ranking run %r has no assessments to build preferences from", args.ranking_run_id
+        )
+        return 1
+
+    try:
+        problems = {p.id: p for p in load_problems(dataset_path(config.paths.problems))}
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    try:
+        candidate_repo = _run_repository(config).candidates(ranking_manifest.candidate_run_id)
+        candidates_by_id = {c.candidate_id: c for c in candidate_repo.load_all()}
+    except CandidateStoreError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    assessments_by_problem: dict[str, list] = {}
+    for assessment in assessments:
+        assessments_by_problem.setdefault(assessment.problem_id, []).append(assessment)
+
+    policy_name = args.policy or config.preferences.policy
+    try:
+        policy = make_policy(policy_name)
+    except PreferencePolicyError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    minimum_score_margin = (
+        args.margin if args.margin is not None else config.preferences.minimum_score_margin
+    )
+    max_pairs_per_problem = (
+        args.max_pairs_per_problem
+        if args.max_pairs_per_problem is not None
+        else config.preferences.max_pairs_per_problem
+    )
+    split_seed = args.split_seed if args.split_seed is not None else config.preferences.split.seed
+    split_ratios = config.preferences.split.as_ratios()
+
+    preference_run_repo = _preference_run_repository(config)
+
+    if args.resume:
+        if args.force:
+            logger.info(
+                "--force overrides --resume %s; creating a new preference run instead",
+                args.resume,
+            )
+            manifest = None
+        else:
+            try:
+                manifest = preference_run_repo.get_run(args.resume)
+            except PreferenceRunNotFoundError as exc:
+                logger.error("%s", exc)
+                return 1
+            if manifest.ranking_run_id != args.ranking_run_id:
+                logger.error(
+                    "preference run %r covers ranking run %r, not %r",
+                    args.resume,
+                    manifest.ranking_run_id,
+                    args.ranking_run_id,
+                )
+                return 1
+            try:
+                manifest = preference_run_repo.resume_run(args.resume)
+            except PreferenceRunError as exc:
+                logger.error("%s", exc)
+                return 1
+            logger.info("Resuming preference run %s", manifest.preference_run_id)
+    else:
+        manifest = None
+
+    if manifest is None:
+        manifest = preference_run_repo.create_run(
+            ranking_run_id=args.ranking_run_id,
+            evaluation_run_id=ranking_manifest.evaluation_run_id,
+            candidate_run_id=ranking_manifest.candidate_run_id,
+            preference_version=PREFERENCE_VERSION,
+            selection_policy=policy.name,
+            selection_policy_version=policy.version,
+            minimum_score_margin=minimum_score_margin,
+            split_ratios=split_ratios,
+            split_seed=split_seed,
+            builder_version=BUILDER_VERSION,
+            max_pairs_per_problem=max_pairs_per_problem,
+        )
+        manifest = preference_run_repo.start_run(manifest.preference_run_id)
+        logger.info(
+            "Preference run %s created | ranking run %s | policy=%s margin=%s",
+            manifest.preference_run_id,
+            args.ranking_run_id,
+            policy.name,
+            minimum_score_margin,
+        )
+
+    repository = preference_run_repo.results(manifest.preference_run_id)
+    already_done = repository.paired_problem_ids()
+    remaining = [pid for pid in sorted(assessments_by_problem) if pid not in already_done]
+    for pid in sorted(assessments_by_problem):
+        if pid in already_done:
+            logger.info("Skipping %s (already processed)", pid)
+
+    builder = PreferencePairBuilder(
+        policy,
+        minimum_score_margin=minimum_score_margin,
+        max_pairs_per_problem=max_pairs_per_problem,
+    )
+
+    try:
+        for problem_id in remaining:
+            problem = problems.get(problem_id)
+            if problem is None:
+                logger.error(
+                    "problem %r (referenced by ranking run %r) not found in the current "
+                    "problem dataset",
+                    problem_id,
+                    args.ranking_run_id,
+                )
+                return 1
+            result = builder.build_problem(
+                ranking_run_id=args.ranking_run_id,
+                evaluation_run_id=manifest.evaluation_run_id,
+                candidate_run_id=manifest.candidate_run_id,
+                problem=problem,
+                assessments=assessments_by_problem[problem_id],
+                candidates_by_id=candidates_by_id,
+            )
+            repository.save_pairs(result.pairs)
+            repository.save_rejections(result.rejections)
+    except KeyboardInterrupt:
+        preference_run_repo.interrupt_run(manifest.preference_run_id)
+        _finalize_preference_run(
+            preference_run_repo, manifest.preference_run_id, assessments_by_problem
+        )
+        logger.warning(
+            "Preference run %s interrupted; resume with: python -m python_dpo preferences "
+            "generate --ranking-run-id %s --resume %s",
+            manifest.preference_run_id,
+            args.ranking_run_id,
+            manifest.preference_run_id,
+        )
+        return 130
+
+    stats = _finalize_preference_run(
+        preference_run_repo, manifest.preference_run_id, assessments_by_problem
+    )
+    complete = set(assessments_by_problem) <= repository.paired_problem_ids()
+
+    if complete:
+        preference_run_repo.complete_run(manifest.preference_run_id)
+        final_status = "completed"
+    else:
+        preference_run_repo.interrupt_run(manifest.preference_run_id)
+        final_status = "interrupted"
+
+    logger.info(
+        "Preference run %s %s | %d problem(s) processed this call | pairs=%d rejected=%d "
+        "training_records=%d",
+        manifest.preference_run_id,
+        final_status,
+        len(remaining),
+        stats.pairs_generated,
+        stats.pairs_rejected,
+        stats.training_records,
+    )
+    return 0 if final_status == "completed" else 1
+
+
+def _cmd_preferences_list(args: argparse.Namespace, config: Config) -> int:
+    preference_run_repo = _preference_run_repository(config)
+    runs = preference_run_repo.list_runs()
+    if not runs:
+        sys.stdout.write("No preference runs found.\n")
+        return 0
+
+    header = f"{'PREFERENCE_RUN_ID':<28}{'RANKING_RUN_ID':<26}{'POLICY':<12}{'STATUS':<12}{'CREATED_AT'}"
+    lines = [header]
+    for m in runs:
+        lines.append(
+            f"{m.preference_run_id:<28}{m.ranking_run_id:<26}{m.selection_policy:<12}"
+            f"{m.status:<12}{m.created_at}"
+        )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_preferences_show(args: argparse.Namespace, config: Config) -> int:
+    preference_run_repo = _preference_run_repository(config)
+    try:
+        preference_run_repo.get_run(args.preference_run_id)
+    except PreferenceRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    repository = preference_run_repo.results(args.preference_run_id)
+    pair = repository.get(args.preference_id)
+    if pair is None:
+        logger.error("no preference %r in %r", args.preference_id, args.preference_run_id)
+        return 1
+    sys.stdout.write(format_pair_detail(pair, show_code=args.show_code))
+    return 0
+
+
+def _cmd_preferences_stats(args: argparse.Namespace, config: Config) -> int:
+    preference_run_repo = _preference_run_repository(config)
+    try:
+        preference_run_repo.get_run(args.preference_run_id)
+    except PreferenceRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    stats = preference_run_repo.read_statistics(args.preference_run_id)
+    if stats is None:
+        logger.error("no statistics recorded yet for %r", args.preference_run_id)
+        return 1
+    sys.stdout.write(format_preference_statistics(stats))
+
+    split_manifest = preference_run_repo.read_split_manifest(args.preference_run_id)
+    if split_manifest is not None:
+        sys.stdout.write(
+            f"\nSplit (seed={split_manifest.seed}): "
+            f"train={len(split_manifest.train_problem_ids)} "
+            f"validation={len(split_manifest.validation_problem_ids)} "
+            f"test={len(split_manifest.test_problem_ids)}\n"
+        )
+    return 0
+
+
+def _cmd_preferences_validate(args: argparse.Namespace, config: Config) -> int:
+    preference_run_repo = _preference_run_repository(config)
+    run_dir = preference_run_repo.run_dir(args.preference_run_id)
+    if not (run_dir / PREFERENCE_MANIFEST_FILENAME).is_file():
+        logger.error("no preference run %r at %s", args.preference_run_id, run_dir)
+        return 1
+
+    ranking_run_dir = None
+    candidate_run_dir = None
+    try:
+        manifest = preference_run_repo.get_run(args.preference_run_id)
+        ranking_run_dir = _ranking_run_repository(config).run_dir(manifest.ranking_run_id)
+        candidate_run_dir = _run_repository(config).run_dir(manifest.candidate_run_id)
+    except PreferenceRunError:
+        pass  # validate_preference_run below will surface the manifest problem itself
+
+    report = validate_preference_run(run_dir, ranking_run_dir, candidate_run_dir)
+    sys.stdout.write(format_preference_report(report))
+    return 0 if report.valid else 1
+
+
+def _add_preferences_parser(subparsers: argparse._SubParsersAction) -> None:
+    preferences_parser = subparsers.add_parser(
+        "preferences",
+        help="Generate and inspect DPO preference pairs.",
+        description=(
+            "Convert Stage 7's objective ranking into {prompt, chosen, rejected} DPO "
+            "preference pairs. Calls no model of any kind; every label comes from "
+            "execution evidence via the Stage 7 comparator."
+        ),
+    )
+    preferences_parser.set_defaults(func=_make_help_handler(preferences_parser))
+
+    preferences_subparsers = preferences_parser.add_subparsers(dest="preferences_command")
+
+    generate_parser = preferences_subparsers.add_parser(
+        "generate", help="Build preference pairs from a ranking run."
+    )
+    generate_parser.add_argument("--ranking-run-id", required=True, dest="ranking_run_id")
+    generate_parser.add_argument(
+        "--policy",
+        choices=sorted(POLICIES),
+        default=None,
+        help="Selection policy (default: value from config.yaml).",
+    )
+    generate_parser.add_argument(
+        "--margin",
+        type=float,
+        default=None,
+        dest="margin",
+        help="Minimum score margin for the margin policy (default: value from config.yaml).",
+    )
+    generate_parser.add_argument(
+        "--max-pairs-per-problem",
+        type=int,
+        default=None,
+        dest="max_pairs_per_problem",
+        help="Cap pairs kept per problem, largest margin first (default: config.yaml value).",
+    )
+    generate_parser.add_argument(
+        "--split-seed",
+        type=int,
+        default=None,
+        dest="split_seed",
+        help="Train/validation/test split seed (default: value from config.yaml).",
+    )
+    generate_parser.add_argument(
+        "--resume",
+        metavar="PREFERENCE_RUN_ID",
+        default=None,
+        help="Continue an existing preference run instead of creating a new one.",
+    )
+    generate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --resume, abandon it and create a new preference run instead.",
+    )
+    generate_parser.set_defaults(func=_cmd_preferences_generate)
+
+    list_parser = preferences_subparsers.add_parser("list", help="List preference runs.")
+    list_parser.set_defaults(func=_cmd_preferences_list)
+
+    show_parser = preferences_subparsers.add_parser("show", help="Show one preference pair.")
+    show_parser.add_argument("--preference-run-id", required=True, dest="preference_run_id")
+    show_parser.add_argument("--preference-id", required=True, dest="preference_id")
+    show_parser.add_argument("--show-code", action="store_true", dest="show_code")
+    show_parser.set_defaults(func=_cmd_preferences_show)
+
+    stats_parser = preferences_subparsers.add_parser(
+        "stats", help="Show preference run statistics."
+    )
+    stats_parser.add_argument("--preference-run-id", required=True, dest="preference_run_id")
+    stats_parser.set_defaults(func=_cmd_preferences_stats)
+
+    validate_parser = preferences_subparsers.add_parser(
+        "validate", help="Validate one preference run's integrity."
+    )
+    validate_parser.add_argument("--preference-run-id", required=True, dest="preference_run_id")
+    validate_parser.set_defaults(func=_cmd_preferences_validate)
+
+
 # ------------------------------------------------------------------------------- sandbox
 
 
@@ -1816,6 +2236,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_evaluations_parser(subparsers)
     _add_rank_parser(subparsers)
     _add_rankings_parser(subparsers)
+    _add_preferences_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

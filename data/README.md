@@ -7,9 +7,9 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Stage 7, `problems/`, `candidates/`, `evaluations/`, and `rankings/` hold real
-artifacts; the other subdirectories are still empty apart from a `.gitkeep` placeholder
-that keeps them present in git. They
+As of Stage 8, `problems/`, `candidates/`, `evaluations/`, `rankings/`, and
+`preferences/` hold real artifacts; the other subdirectories are still empty apart from a
+`.gitkeep` placeholder that keeps them present in git. They
 correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
 `Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
 `ensure_exists()` method can recreate this exact structure from scratch.
@@ -156,9 +156,52 @@ record of what the real model's output actually scored, not a rebuildable artifa
 
 ### `preferences/`
 
-Preference pairs (chosen vs. rejected candidates) derived from evaluation results —
-the DPO training input. Not yet populated — preference-pair generation is a later
-step.
+**Populated (Stage 8).** `{prompt, chosen, rejected}` DPO preference pairs derived from a
+ranking run — the first artifact that can legitimately be called DPO training data.
+
+- `runs/<preference_run_id>/` — every `preferences generate` invocation creates its own
+  self-contained preference run directory, `pref_YYYYMMDD_HHMMSS_xxxx`:
+  - `manifest.json` — which ranking run this preference set covers, the selection policy,
+    margin, split config, and status (never today's `config.yaml`).
+  - `metadata.jsonl` — one `PreferencePair` per generated pair, full audit provenance
+    (candidate ids, scores, strategies, hashes), **including** pairs later collapsed into
+    another pair's training record.
+  - `rejections.jsonl` — one `PreferenceRejection` per excluded candidate pair, with a
+    specific reason (`tie`, `indeterminate`, `identical_code`, `insufficient_margin`,
+    `not_correct_vs_incorrect`, ...). Every pair the builder considers ends up in exactly
+    one of these two files — nothing is silently dropped.
+  - `preferences.jsonl` / `train.jsonl` / `validation.jsonl` / `test.jsonl` — the actual
+    training data: exactly `{prompt, chosen, rejected}`, deduplicated to distinct text
+    triples, split at the problem level.
+  - `split_manifest.json` — which problems landed in which split, the seed, and the
+    ratios — independently reproducible from those three values alone.
+  - `statistics.json` / `quality_report.json` — always reconstructable from
+    `metadata.jsonl` + `rejections.jsonl`.
+
+Every candidate of a problem was generated under a different, strategy-specific prompt
+(Stage 3), so no two candidates share a raw `prompt_sha256` — the pair's `prompt` is
+instead a *canonical*, strategy-free rendering of the problem, whose lineage back to the
+same generation template is verified before it is ever used (see the package
+[README](../src/python_dpo/preferences/README.md)).
+
+The real `rank_20260817_161726_a84d` ranking run, at 100 candidate pairs across 10
+problems with 78 ties, produces exactly two coexisting datasets from the same evidence:
+`strict` — 12 pairs (all "strong"), spanning `p004`/`p008`, collapsing to **3** distinct
+training records — and `margin` (≥0.2) — 10 pairs (6 strong, 4 medium), spanning
+`p004`/`p010`, collapsing to **4**. Eight of the ten problems produce zero pairs under
+either policy — expected at this dataset size, not a bug: see spec section 65 and the
+Stage 8 implementation report.
+
+```bash
+python -m python_dpo rankings list                                    # find a ranking run id
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy strict
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy margin --margin 0.2
+python -m python_dpo preferences list / show / stats / validate PREF_ID
+```
+
+Preference run artifacts are committed for the same reason ranking run artifacts are: a
+record of what the real model's output actually earned as a preference label, not a
+rebuildable artifact.
 
 ### `reports/`
 

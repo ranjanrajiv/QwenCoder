@@ -95,3 +95,24 @@ evaluation:
   startup_grace_seconds: 10
   # No registry to pull a locally-built image from, unlike sandbox's stock image.
   auto_pull: false
+
+# DPO preference pair generation (Stage 8). Pure computation over Stage 7's ranking
+# artifacts — no model call of any kind. Every field here is overridable per-invocation
+# by the matching `preferences generate` CLI flag.
+preferences:
+  # strict | margin | all_better. strict (correct vs incorrect, no margin gate) is the
+  # highest-confidence default; margin and all_better exist for experimentation.
+  policy: strict
+  # Gates the margin policy only; strict ignores it (spec section 25 is purely
+  # correctness-based). Never hard-coded in the pair builder.
+  minimum_score_margin: 0.2
+  # Caps pairs kept per problem, deterministically (largest score margin first). null
+  # keeps every valid pair.
+  max_pairs_per_problem: null
+  # Problem-level split (spec sections 62-67): every pair from one problem stays in one
+  # split. Ratios must sum to 1.0.
+  split:
+    train: 0.8
+    validation: 0.1
+    test: 0.1
+    seed: 42

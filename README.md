@@ -3,15 +3,15 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 7 — Candidate Ranking.** The foundation (packaging, CLI,
-logging, typed configuration), the ground-truth layer (10 curated Python problems with
-trusted reference solutions and executable tests), candidate generation with a Qwen Coder
-model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic persistence,
-resume, retry, integrity validation), an isolated Docker execution sandbox, a
-pytest-based candidate test executor, and deterministic candidate ranking are in place.
-No preference-pair generation or training code has been implemented yet — and
-**generated code, and the tests generated for it, are executed only inside the sandbox,
-never on the host**; ranking itself never executes code or calls an LLM at all.
+**Current status: Stage 8 — DPO Preference Pair Generation.** The foundation (packaging,
+CLI, logging, typed configuration), the ground-truth layer (10 curated Python problems
+with trusted reference solutions and executable tests), candidate generation with a Qwen
+Coder model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic
+persistence, resume, retry, integrity validation), an isolated Docker execution sandbox, a
+pytest-based candidate test executor, deterministic candidate ranking, and DPO preference
+pair generation are in place. No training code has been implemented yet — and **generated
+code, and the tests generated for it, are executed only inside the sandbox, never on the
+host**; ranking and preference-pair generation never execute code or call an LLM at all.
 
 ## Planned pipeline
 
@@ -35,13 +35,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first seven stages are implemented. Everything from preference-pair generation
-onward is still a placeholder that documents the intended shape of the pipeline.
+The first eight stages are implemented. Everything from QLoRA/DPO training onward is
+still a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Seven have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Eight have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -53,9 +53,10 @@ far:
 | 5 — Isolated Docker Sandbox | Locked-down container execution, resource limits, structured results, security test suite | Done |
 | 6 — Candidate Test Executor | Deterministic pytest-suite generation, sandboxed evaluation, per-test evidence | Done |
 | 7 — Candidate Ranking | Correctness classification, scoring, deterministic per-problem ranking, pairwise comparison | Done |
-| 8–12 — Preference pairs → DPO training | Preference-pair generation, QLoRA + DPO training | Not started |
+| 8 — Preference Pair Generation | `{prompt, chosen, rejected}` DPO pairs, selection policies, dedup, problem-level splits | Done |
+| 9–12 — DPO/QLoRA training | Training loop, evaluation of the fine-tuned model | Not started |
 
-Stages 8–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 9–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -76,14 +77,16 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── runs/              # Stage 4: run manifests, statistics, migration, validation
 │   ├── sandbox/           # Stage 5: isolated Docker execution of untrusted code
 │   ├── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
-│   └── ranking/           # Stage 7: correctness classification, scoring, ranking
+│   ├── ranking/           # Stage 7: correctness classification, scoring, ranking
+│   └── preferences/       # Stage 8: {prompt, chosen, rejected} DPO pair generation
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
 │   ├── candidates/candidates.jsonl # legacy Stage 3 flat file (read-only; see migrate)
 │   ├── candidates/runs/            # Stage 4: one directory per generation run
 │   ├── evaluations/runs/           # Stage 6: one directory per evaluation run
-│   └── rankings/runs/              # Stage 7: one directory per ranking run
+│   ├── rankings/runs/              # Stage 7: one directory per ranking run
+│   └── preferences/runs/           # Stage 8: one directory per preference run
 ├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
@@ -169,12 +172,20 @@ python -m python_dpo rankings list RANK_ID       # per-problem summary
 python -m python_dpo rankings show RANK_ID PROBLEM_ID   # the rank table for one problem
 python -m python_dpo rankings stats RANK_ID
 python -m python_dpo rankings validate RANK_ID
+
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy strict
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy margin --margin 0.2
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --resume PREF_ID  # continue one
+
+python -m python_dpo preferences list                    # all preference runs, newest first
+python -m python_dpo preferences show --preference-run-id PREF_ID --preference-id PREF
+python -m python_dpo preferences stats --preference-run-id PREF_ID
+python -m python_dpo preferences validate --preference-run-id PREF_ID
 ```
 
-The remaining subcommands exist as **placeholders only**. Each logs a "not implemented
-yet" message and exits with status `1` — none of them do real work:
+The remaining subcommand exists as a **placeholder only**. It logs a "not implemented
+yet" message and exits with status `1` — it does no real work:
 
-- `python -m python_dpo preferences`
 - `python -m python_dpo run`
 
 ## Configuration
@@ -185,7 +196,10 @@ Stage 5 `sandbox` section (image, resource limits, isolation toggles), and the S
 `evaluation` section (evaluator image, timeout, startup grace, auto-pull — every
 isolation setting itself is inherited from `sandbox` at run time, never re-specified).
 Stage 7 ranking has no configuration section of its own — v1 has no tunable scoring
-parameters. See `src/python_dpo/config.py` for how it's loaded and validated.
+parameters. Stage 8 preference generation does: a `preferences` section (default
+selection policy, minimum score margin, max pairs per problem, split ratios/seed) —
+every field is overridable per-invocation by the matching `preferences generate` flag.
+See `src/python_dpo/config.py` for how it's loaded and validated.
 
 The model identifier lives in configuration and never in source code, so swapping models
 requires no code change. **No credentials belong in this file.**
@@ -778,4 +792,134 @@ python -m python_dpo rank run --evaluation-run-id EVAL_ID --resume RANK_ID  # co
 
 ```bash
 pytest -q   # offline, zero skips — ranking is pure computation, no Docker involved at all
+```
+
+## Stage 8 — DPO Preference Pair Generation
+
+### Purpose
+
+Stage 7 produced a neutral ordering — `A_BETTER`/`TIE`/`INDETERMINATE` — and deliberately
+stopped short of a preference. Stage 8 owns that vocabulary: it converts the ranking into
+`{prompt, chosen, rejected}` DPO training records, backed entirely by execution evidence.
+
+**No model of any kind is ever called.** Every label comes from Stage 6's pytest counts
+by way of Stage 7's `CandidateComparator`, re-run here rather than trusted from a
+persisted `ComparisonResult`. Candidate code is never touched — `chosen`/`rejected` are
+the exact bytes Qwen generated, never reformatted, repaired, or wrapped in fences. Equal
+score is never a preference: ties are excluded, full stop.
+
+**At a glance (the real Stage 7 ranking run, `rank_20260817_161726_a84d`, 100 candidate
+pairs across 10 problems):** 78 ties excluded, 22 decisive comparisons — the strict policy
+(correct vs incorrect, no margin gate) admits 12 of those 22, all "strong", spanning only
+2 problems (`p004`, `p008`). Those 12 pairs collapse to **3 distinct
+`(prompt, chosen, rejected)` training records**, since several candidates within a problem
+share identical code across strategies. The margin policy (`>= 0.2`) admits a different
+10 pairs — 6 strong, 4 medium — spanning `p004` and `p010` instead of `p004`/`p008`; the
+two policies overlap only on `p004`.
+
+That is the honest headline, not a bug to engineer away: at ten problems, a
+high-confidence DPO dataset is necessarily small. Optimizing for pair count over label
+confidence would defeat the point of the policy layer.
+
+### Canonical prompt
+
+Every candidate of a problem was generated under a **different**, strategy-specific
+prompt (see Stage 3's `Strategy:` instruction block) — so no two candidates share a
+`prompt_sha256`, and a literal "chosen and rejected prompts must match" check would
+produce zero pairs under every policy. Stage 8 instead builds `prompt` from a canonical,
+strategy-free rendering of the problem, and *proves* it is a genuine rendering of the same
+template every candidate was actually generated under: `verify_prompt_lineage` re-derives
+each candidate's stored prompt hash from `build_prompt(problem, candidate.strategy)` and
+requires an exact match before the canonical prompt is ever used. A mismatch is recorded
+as an `integrity_failure`, never a silent fallback.
+
+### Selection policies
+
+| Policy | Admits | Default? |
+|---|---|---|
+| `strict` | `correct` vs `incorrect` only — ignores the margin entirely | Yes |
+| `margin` | Any decisive comparison clearing `minimum_score_margin` (default `0.2`) | No |
+| `all_better` | Any decisive comparison, however small the margin | No, experimentation only |
+
+The same ranking run can produce several preference datasets from these — `strict_v1`,
+`margin_v1`, `margin_v2` — without rerunning Qwen, Docker, or pytest.
+
+### Deduplication
+
+Three separate notions, deliberately not conflated: a directional `(problem, chosen,
+rejected)` pair identity (so `A>B` and `B>A` are different keys, never merged); candidate
+code identity (gates a single pair, never removes a candidate from the pool — it may
+still pair against a third candidate); and the `(prompt, chosen, rejected)` **text**
+identity a DPO trainer actually sees. The last is what collapses the real strict run's 12
+pairs to 3 training records: `metadata.jsonl` keeps every pair, `preferences.jsonl` keeps
+only the first (by `preference_id`) of each duplicate group.
+
+### Splitting
+
+The split unit is `problem_id`, never a pair — every pair from one problem lands in
+exactly one of train/validation/test, so the same prompt can never appear in two splits.
+The pool being split is the problems that actually produced a training pair, not the
+entire dataset (splitting all ten problems when only two produce pairs would spend the
+validation/test budget on problems contributing nothing). A floor rule keeps `train`
+non-empty whenever the pool is non-empty. Deterministic: `random.Random(seed)` over a
+sorted pool, seed and ratios persisted in `split_manifest.json`.
+
+```bash
+python -m python_dpo preferences generate --ranking-run-id rank_20260817_161726_a84d --policy strict
+python -m python_dpo preferences stats --preference-run-id PREF_ID
+```
+```
+Problems processed: 10
+Candidates considered: 50
+Candidate pairs considered: 100
+Pairs generated: 12
+Pairs rejected: 88
+  Ties: 78
+  Duplicate code: 0
+  Indeterminate: 0
+  Prompt mismatches: 0
+  Integrity failures: 0
+Strong pairs: 12
+Medium pairs: 0
+Distinct training records: 3
+
+Policy/other exclusions:
+  not_correct_vs_incorrect: 10
+
+Split (seed=42): train=1 validation=0 test=1
+```
+
+### Persisted evidence
+
+```
+data/preferences/runs/pref_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json        # policy, versions, margin, split config, upstream run ids, status
+├── metadata.jsonl        # one PreferencePair per generated pair, including collapsed ones
+├── rejections.jsonl      # one PreferenceRejection per excluded candidate pair, with a reason
+├── preferences.jsonl     # {prompt, chosen, rejected} training records, deduped
+├── split_manifest.json   # train/validation/test problem-id membership, seed, ratios
+├── train.jsonl           # same three-key shape as preferences.jsonl
+├── validation.jsonl
+├── test.jsonl
+├── statistics.json       # reconstructable from metadata.jsonl + rejections.jsonl
+└── quality_report.json   # distributions and a reason per pairless problem; reported, not enforced
+```
+
+### Resume semantics
+
+Follows `rank run`'s shape, not `evaluate run`'s resume-by-default: a bare invocation
+**always creates a new preference run**. `--resume PREFERENCE_RUN_ID` is the only way to
+continue one; `--force` mints a new run rather than modifying an existing one, so
+`strict_v1` and `margin_v1` from the same ranking run coexist.
+
+```bash
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy strict   # creates pref_...
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --policy strict --force  # a new run
+python -m python_dpo preferences generate --ranking-run-id RANK_ID --resume PREF_ID  # continue PREF_ID
+```
+
+### Testing
+
+```bash
+pytest -q   # offline, zero skips — preference generation is pure computation, no Docker at all
 ```

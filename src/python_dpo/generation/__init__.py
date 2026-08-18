@@ -6,7 +6,12 @@ decides whether one is correct — that belongs to the evaluator in a later stag
 
 from .code_extractor import NO_CODE_DETECTED, ExtractionResult, extract_code
 from .generator import CandidateGenerator, GenerationSummary
-from .prompt_builder import PROMPT_VERSION, build_prompt
+from .prompt_builder import (
+    CANONICAL_PROMPT_VERSION,
+    PROMPT_VERSION,
+    build_canonical_prompt,
+    build_prompt,
+)
 from .strategies import (
     STRATEGIES,
     STRATEGY_INSTRUCTIONS,
@@ -17,6 +22,7 @@ from .strategies import (
 from .validation import SyntaxCheck, check_function_name, check_syntax
 
 __all__ = [
+    "CANONICAL_PROMPT_VERSION",
     "NO_CODE_DETECTED",
     "PROMPT_VERSION",
     "STRATEGIES",
@@ -26,6 +32,7 @@ __all__ = [
     "GenerationSummary",
     "StrategyError",
     "SyntaxCheck",
+    "build_canonical_prompt",
     "build_prompt",
     "check_function_name",
     "check_syntax",

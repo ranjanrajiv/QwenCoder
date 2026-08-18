@@ -1,10 +1,10 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 7 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 8 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
 configuration — the problem dataset, the model abstraction, candidate generation, a
 reliable per-run persistence layer, the isolated Docker sandbox, the candidate test
-executor, and candidate ranking. No preference-pair generation or training code lives
+executor, candidate ranking, and DPO preference pair generation. No training code lives
 here yet.
 
 ## Subpackages
@@ -66,11 +66,21 @@ never an LLM judge. `CorrectnessClassifier` → `CandidateScorer` → `Candidate
 `CandidateComparator` orchestrate; `RankingRepository` and `RankingRunRepository` own
 persistence, mirroring `evaluation/`. See its [README](ranking/README.md).
 
+### [`preferences/`](preferences/)
+
+Introduced in Stage 8. Converts Stage 7's objective ranking into `{prompt, chosen,
+rejected}` DPO preference pairs — the first package allowed to use that vocabulary. A
+pair exists only when the evidence is decisive: ties, indeterminate candidates, and
+identical code never produce one, and no model of any kind is ever called.
+`PreferencePairBuilder` orchestrates policy selection, prompt-lineage verification, and
+deduplication; `PreferenceRepository` and `PreferenceRunRepository` own persistence,
+mirroring `ranking/`. See its [README](preferences/README.md).
+
 ## Files
 
 ### `__init__.py`
 
-Defines `__version__ = "0.7.0"` and `__all__ = ["__version__"]`. This is the single
+Defines `__version__ = "0.8.0"` and `__all__ = ["__version__"]`. This is the single
 source of truth for the package version — `pyproject.toml` reads it dynamically via
 `[tool.setuptools.dynamic]` so the two can never drift. Deliberately has no other
 imports, so `import python_dpo` stays cheap and has no dependency side effects.
@@ -105,7 +115,7 @@ keeps runtime dependencies minimal).
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
   `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`,
-  `rank`, `rankings`, and the `preferences`/`run` placeholders.
+  `rank`, `rankings`, `preferences`, and the `run` placeholder.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -146,6 +156,16 @@ keeps runtime dependencies minimal).
   abandons a `--resume` request and starts fresh instead. `rankings list` / `rankings
   show PROBLEM_ID` / `rankings stats` / `rankings validate` inspect and validate one
   ranking run via `RankingRunRepository` / `validate_ranking_run`.
+- `preferences generate --ranking-run-id [--policy] [--margin] [--max-pairs-per-problem]
+  [--split-seed] [--resume] [--force]` (Stage 8) runs `PreferencePairBuilder` against a
+  ranking run's assessments, then splits and persists the result. Follows `rank run`'s
+  shape, not `evaluate run`'s: a bare invocation **always creates a new preference run**;
+  `--resume PREFERENCE_RUN_ID` is the only way to continue one, and `--force` abandons a
+  `--resume` request and starts fresh instead — so `strict_v1`/`margin_v1`/`margin_v2`
+  from the same ranking run can coexist. `preferences list` / `preferences show
+  --preference-run-id --preference-id [--show-code]` / `preferences stats` /
+  `preferences validate` inspect and validate one preference run via
+  `PreferenceRunRepository` / `validate_preference_run`.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -197,17 +217,23 @@ on `PyYAML` (spec §6 exception).
   every run's algorithm versions (`ranking_version`/`scoring_version`/
   `comparator_version`) and an empty `scoring_configuration` are recorded on
   `RankingManifest` for future use, but nothing in `config.yaml` drives them today.
+- `PreferenceConfig` — the Stage 8 `preferences:` section (default `policy`,
+  `minimum_score_margin`, `max_pairs_per_problem`, and a `split:` block of
+  `train`/`validation`/`test` ratios plus `seed`), defined in `preferences/config.py` and
+  wrapped here by `_parse_preferences`, the same one-way-dependency, boundary-translation
+  pattern as `sandbox:`/`evaluation:`. Unlike ranking, preference generation has four
+  genuinely tunable parameters, so every field is overridable per-invocation by the
+  matching `preferences generate` CLI flag.
 - `GenerationSettings` — the `generation:` and `generation_strategies:` sections:
   `candidates_per_problem`, a validated `GenerationConfig`, the strategy list, and (Stage
   4) `retry: RetrySettings` from `generation.retry.max_attempts`. The typed model objects
   themselves live in `models/base.py`, so the dependency runs one way — configuration
   imports the model layer, never the reverse.
 - `Config` — a frozen dataclass holding `project_name`, `paths`, `log_level`,
-  `project_root`, `model`, `generation`, `sandbox`, and `evaluation`. `Config.load(path=None)`
-  reads and validates
-  `config.yaml` with
-  `yaml.safe_load` (never `yaml.load`), checking every required key is present and of
-  the right type, raising `ConfigError` otherwise.
+  `project_root`, `model`, `generation`, `sandbox`, `evaluation`, and `preferences`.
+  `Config.load(path=None)` reads and validates `config.yaml` with `yaml.safe_load` (never
+  `yaml.load`), checking every required key is present and of the right type, raising
+  `ConfigError` otherwise.
 
 ### `logging_config.py`
 

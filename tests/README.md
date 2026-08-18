@@ -80,6 +80,16 @@ One test per requirement in spec §14, plus a couple of guardrails:
   `test_rankings_stats_reports_an_unknown_ranking_run_id`,
   `test_rankings_validate_reports_an_unknown_ranking_run_id` — the `rankings` inspection
   group.
+- `test_preferences_is_not_a_placeholder`, `test_preferences_subcommands_parse`,
+  `test_bare_preferences_prints_help_and_returns_nonzero`,
+  `test_preferences_generate_requires_ranking_run_id`,
+  `test_preferences_generate_reports_an_unknown_ranking_run_id`,
+  `test_preferences_show_reports_an_unknown_preference_run_id`,
+  `test_preferences_stats_reports_an_unknown_preference_run_id`,
+  `test_preferences_validate_reports_an_unknown_preference_run_id` (Stage 8) —
+  `preferences generate`/`list`/`show`/`stats`/`validate` flag parsing, including every
+  policy/margin/split/resume/force flag, and that an unknown ranking or preference run id
+  is rejected before any building work begins.
 
 ### `test_problems.py`
 
@@ -442,6 +452,77 @@ file here runs in the default offline suite.
   differing only in run id and timestamps); the §76 **versioning test** (changing
   `scoring_version` creates a new ranking run and leaves the original run's
   `rankings.jsonl` byte-for-byte unchanged).
+
+### `preferences/`
+
+The Stage 8 preference-pair suite. Entirely pure computation — no Docker, no model, no
+network — so like `ranking/` it has no `-m integration` split; every file here runs in
+the default offline suite.
+
+- **`test_models.py`** — `PreferencePair`'s spec §16 validity rules as construction
+  failures (same candidate id, identical code, `chosen_score <= rejected_score`, wrong
+  `score_margin`, indeterminate correctness, `preference_strength` disagreeing with the
+  correctness pair, a duplicate-flag/canonical-id mismatch); round-trip `to_dict`/
+  `from_dict`; `PreferenceRejection`/`PreferenceManifest` validity and status transitions;
+  `PreferenceStatistics.from_records` against a hand-counted fixture; `QualityReport`.
+- **`test_prompt.py`** — the stage's load-bearing assumption (decision 1): the canonical
+  prompt is identical across every strategy and differs across problems, contains no
+  `Strategy:` block or label leakage, and `verify_prompt_lineage` passes real generation
+  prompts but raises on a candidate from a different problem, a stale `prompt_version`, or
+  a tampered prompt hash.
+- **`test_policies.py`** — the spec §88 table exactly for `strict`/`margin`/`all_better`,
+  including decision 2's case (a 9/9-vs-8/9 correctness gap admitted by `strict` despite a
+  margin of 0.111, well under the 0.2 default) and every margin check reading the
+  threshold from an argument, never a literal.
+- **`test_builder.py`** — the spec §90 strict matrix (`A=10/10, B=8/10, C=10/10, D=5/10,
+  E=0/10`) asserting the exact six pairs and no `A/C` pair; ties, indeterminate-vs-any, and
+  cross-problem pairs excluded; identical code recorded as a `tie` when scores also match
+  (the real-data shape) and as `identical_code` when they defensively don't; a prompt
+  lineage failure invalidating every pair for the whole problem as `integrity_failure`; a
+  missing candidate join handled the same way rather than crashing; deterministic
+  `preference_id`s and `max_pairs_per_problem` truncation (largest margin first, no RNG);
+  `pairs_generated + pairs_rejected == candidate_pairs_considered` — the mechanical form of
+  "never silently discard."
+- **`test_dedup.py`** — the spec §74 worked example (two identical-code candidates versus
+  a third distinct one: both individual comparisons valid, the identical pair invalid);
+  `A>B`/`B>A` are different `pair_key`s, not duplicates of each other (§32); same prompt
+  alone is never a duplicate (§73); `dedupe_training_records` collapsing on `training_key`
+  and picking the lexicographically-first `preference_id` as the survivor regardless of
+  input order.
+- **`test_splitter.py`** — determinism for a fixed seed; independence from input order;
+  no problem in two splits; ratios respected at ten problems; the floor rule keeping
+  `train` non-empty at pool sizes 1 and 2 (including the exact real strict-policy shape,
+  `train=[p008], validation=[], test=[p004]`, at seed 42); an empty pool; round-trip
+  `SplitManifest`.
+- **`test_repository.py`** — the spec §82 API, persistence and retrieval, malformed-line
+  rejection with a line number, the `paired_problem_ids()` resume index,
+  `write_dataset(...)` producing exactly-three-key training records and excluding
+  duplicate training records from `preferences.jsonl`.
+- **`test_run_repository.py`** — preference-run-id format and uniqueness; create/get/list
+  (newest first); the full status lifecycle and resume-refuses-`completed` rule,
+  mirroring `ranking/test_run_repository.py`; `--force` leaving an already-completed run
+  byte-for-byte unchanged.
+- **`test_statistics.py`** — every spec §54 counter against hand-counted fixtures,
+  including that the five headline rejection counters equal their matching
+  `rejections_by_reason` entries; the §75/§76 quality report's per-problem reasons
+  (`all_candidates_correct`, `all_candidates_tied`, `all_candidates_indeterminate`,
+  `insufficient_candidates`); every formatter.
+- **`test_validation.py`** — each check built by mutating a real preference run produced
+  by the actual builder (mirroring `ranking/test_validation.py`'s approach): a reversed
+  pair (§71); a duplicated metadata row and a duplicated training record (§72); a flipped
+  score failing the §69/§70 cross-check against the source ranking run; chosen code no
+  longer matching its candidate's stored code, and an unknown candidate id, both caught by
+  the candidate-provenance cross-check; a problem placed in two splits (caught by
+  `SplitManifest`'s own construction check); drifted or missing `statistics.json`; a
+  missing manifest.
+- **`test_integration.py`** — the spec §90 strict matrix and the margin policy's
+  additional partial-vs-partial pairs, both verified end-to-end against a real, validated
+  preference run (including a second, deliberately pairless problem, to prove a
+  zero-pair problem is processed rather than silently skipped); the spec §91 end-to-end
+  check that chosen really outscores rejected, provenance is correct, and the split is
+  problem-level; a **reproducibility test** (two preference runs over identical input
+  produce identical pairs and byte-identical training files, differing only in run id and
+  timestamps).
 
 ### `test_no_heavy_imports.py`
 
