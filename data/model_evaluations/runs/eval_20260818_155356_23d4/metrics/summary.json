@@ -1,0 +1,64 @@
+{
+  "base_pass_at_1": 0.6666666666666666,
+  "base_syntax_success": 1.0,
+  "base_test_pass_rate": 0.8095238095238094,
+  "base_timeout_rate": 0.0,
+  "computed_at": "2026-08-18T16:14:52Z",
+  "dpo_pass_at_1": 0.6666666666666666,
+  "dpo_syntax_success": 1.0,
+  "dpo_test_pass_rate": 0.8095238095238094,
+  "dpo_timeout_rate": 0.0,
+  "evaluation_run_id": "eval_20260818_155356_23d4",
+  "execution_success_rate": {
+    "base": 1.0,
+    "dpo": 1.0
+  },
+  "generation_failure_rate": {
+    "base": 0.0,
+    "dpo": 0.0
+  },
+  "pass_at_k": {
+    "base": {
+      "1": 0.6666666666666666
+    },
+    "dpo": {
+      "1": 0.6666666666666666
+    }
+  },
+  "solve_rate": {
+    "base": 0.6666666666666666,
+    "dpo": 0.6666666666666666
+  },
+  "syntax_success_rate": {
+    "base": 1.0,
+    "dpo": 1.0
+  },
+  "test_failure_distribution": {
+    "base": {
+      "0%": 0,
+      "1-20%": 0,
+      "100%": 2,
+      "20-40%": 0,
+      "40-60%": 1,
+      "60-80%": 0,
+      "80-99%": 0
+    },
+    "dpo": {
+      "0%": 0,
+      "1-20%": 0,
+      "100%": 2,
+      "20-40%": 0,
+      "40-60%": 1,
+      "60-80%": 0,
+      "80-99%": 0
+    }
+  },
+  "test_pass_rate": {
+    "base": 0.8095238095238094,
+    "dpo": 0.8095238095238094
+  },
+  "timeout_rate": {
+    "base": 0.0,
+    "dpo": 0.0
+  }
+}

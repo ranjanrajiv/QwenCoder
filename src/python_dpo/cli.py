@@ -5,6 +5,7 @@ import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .atomic_io import JsonlError, repair_truncated_tail
@@ -95,6 +96,41 @@ from .training.config import DEFAULT_CONFIG_PATH
 from .training.run_repository import MANIFEST_FILENAME as TRAINING_MANIFEST_FILENAME
 from .training.run_repository import run_log_file
 from .training.versions import capture_environment
+from .model_evaluation import (
+    Benchmark,
+    BenchmarkError,
+    BenchmarkLeakageError,
+    ComparisonResult,
+    EvaluationDriver,
+    EvaluationExperimentConfig,
+    EvaluationRecord,
+    GenerationDriver,
+    ModelDependencyError,
+    ModelEvaluationConfigError,
+    ModelEvaluationError,
+    ModelEvaluationRunRepository,
+    SuccessCriteria,
+    bootstrap_ci,
+    build_benchmark,
+    build_comparison_report_json,
+    build_failure_analysis,
+    build_metrics_summary,
+    check_leakage,
+    classify_problem_examples,
+    compare,
+    evaluate_success_criteria,
+    load_benchmark,
+    mcnemar,
+    mean_pass_at_k,
+    paired_bootstrap,
+    render_markdown_report,
+    save_benchmark,
+    verify_adapter_integrity,
+)
+from .model_evaluation.config import DEFAULT_CONFIG_PATH as EVAL_DEFAULT_CONFIG_PATH
+from .model_evaluation.errors import EvaluationRunNotFoundError as ModelEvalRunNotFoundError
+from .model_evaluation.runners import AdapterModelRunner, BaseModelRunner
+from .model_evaluation.run_repository import run_log_file as eval_run_log_file
 from .ranking import (
     CLASSIFIER_VERSION,
     COMPARATOR_VERSION,
@@ -2581,6 +2617,815 @@ def _add_train_parser(subparsers: argparse._SubParsersAction) -> None:
     show_parser.set_defaults(func=_cmd_train_show)
 
 
+# --------------------------------------------------------------------------- benchmark
+
+
+def _benchmarks_root(config: Config) -> Path:
+    """``benchmarks/`` lives at the project root, next to ``data/`` (spec section 8) --
+    it is dataset-adjacent infrastructure, not a run artifact."""
+    return config.project_root / "benchmarks"
+
+
+def _cmd_benchmark_build(args: argparse.Namespace, config: Config) -> int:
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if args.problem_id:
+        problem_ids = list(args.problem_id)
+    else:
+        problem_ids = [p.id for p in problems]
+        if args.exclude_preference_run_id:
+            split_manifest = _preference_run_repository(config).read_split_manifest(
+                args.exclude_preference_run_id
+            )
+            if split_manifest is None:
+                logger.error(
+                    "no split manifest for preference run %r", args.exclude_preference_run_id
+                )
+                return 1
+            excluded = set(split_manifest.train_problem_ids) | set(
+                split_manifest.validation_problem_ids
+            )
+            problem_ids = [pid for pid in problem_ids if pid not in excluded]
+
+    try:
+        manifest = build_benchmark(args.name, problems, problem_ids)
+    except BenchmarkError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    path = save_benchmark(_benchmarks_root(config), manifest)
+    sys.stdout.write(
+        f"Benchmark {manifest.benchmark_version} built: {manifest.problem_count} problem(s)\n"
+        f"  problem_ids: {', '.join(manifest.problem_ids)}\n"
+        f"  dataset_hash: {manifest.dataset_hash}\n"
+        f"  manifest: {path}\n"
+    )
+    return 0
+
+
+def _cmd_benchmark_validate(args: argparse.Namespace, config: Config) -> int:
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+    try:
+        load_benchmark(_benchmarks_root(config), args.benchmark, problems)
+    except BenchmarkError as exc:
+        logger.error("%s", exc)
+        return 1
+    sys.stdout.write("Benchmark validation passed.\n")
+    return 0
+
+
+def _cmd_benchmark_check_leakage(args: argparse.Namespace, config: Config) -> int:
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+    try:
+        benchmark = load_benchmark(_benchmarks_root(config), args.benchmark, problems)
+    except BenchmarkError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    split_manifest = _preference_run_repository(config).read_split_manifest(
+        args.preference_run_id
+    )
+    if split_manifest is None:
+        logger.error("no split manifest for preference run %r", args.preference_run_id)
+        return 1
+
+    try:
+        check_leakage(benchmark, split_manifest.to_dict())
+    except BenchmarkLeakageError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write("No problem leakage detected.\n")
+    return 0
+
+
+def _add_benchmark_parser(subparsers: argparse._SubParsersAction) -> None:
+    benchmark_parser = subparsers.add_parser(
+        "benchmark",
+        help="Build and validate Stage 10 held-out evaluation benchmarks.",
+        description=(
+            "Manage the held-out benchmark(s) used to compare Base Qwen against the "
+            "DPO-trained adapter. Never touches candidate generation, training, or the "
+            "preference dataset."
+        ),
+    )
+    benchmark_parser.set_defaults(func=_make_help_handler(benchmark_parser))
+    benchmark_subparsers = benchmark_parser.add_subparsers(dest="benchmark_command")
+
+    build_parser_ = benchmark_subparsers.add_parser("build", help="Build a benchmark manifest.")
+    build_parser_.add_argument("--name", required=True)
+    build_parser_.add_argument(
+        "--problem-id",
+        action="append",
+        dest="problem_id",
+        default=None,
+        help="Select specific problem id(s) (repeatable). Default: every problem, minus "
+        "--exclude-preference-run-id's train/validation problems if given.",
+    )
+    build_parser_.add_argument(
+        "--exclude-preference-run-id",
+        default=None,
+        dest="exclude_preference_run_id",
+        help="Exclude this preference run's train/validation problem ids from the benchmark.",
+    )
+    build_parser_.set_defaults(func=_cmd_benchmark_build)
+
+    validate_parser = benchmark_subparsers.add_parser(
+        "validate", help="Recompute the dataset hash and check for drift."
+    )
+    validate_parser.add_argument("--benchmark", required=True)
+    validate_parser.set_defaults(func=_cmd_benchmark_validate)
+
+    leakage_parser = benchmark_subparsers.add_parser(
+        "check-leakage",
+        help="Verify the benchmark is disjoint from a preference run's train/validation splits.",
+    )
+    leakage_parser.add_argument("--benchmark", required=True)
+    leakage_parser.add_argument(
+        "--preference-run-id", required=True, dest="preference_run_id"
+    )
+    leakage_parser.set_defaults(func=_cmd_benchmark_check_leakage)
+
+
+# ---------------------------------------------------------------------- evaluate-model
+
+
+def _model_evaluation_run_repository(config: Config) -> ModelEvaluationRunRepository:
+    return ModelEvaluationRunRepository(config.paths.model_evaluations / "runs")
+
+
+def _build_model_evaluation_runner(
+    variant: str,
+    training_manifest,
+    training_run_repo: TrainingRunRepository,
+    training_run_id: str,
+    experiment: EvaluationExperimentConfig,
+):
+    if variant == "base":
+        return BaseModelRunner(
+            model_name=training_manifest.model_name,
+            model_revision=training_manifest.model_revision,
+            quantization=experiment.quantization,
+            generation=experiment.generation,
+        )
+    return AdapterModelRunner(
+        model_name=training_manifest.model_name,
+        model_revision=training_manifest.model_revision,
+        adapter_dir=training_run_repo.adapter_dir(training_run_id),
+        quantization=experiment.quantization,
+        generation=experiment.generation,
+    )
+
+
+def _reset_peak_gpu_memory() -> None:
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+
+def _peak_gpu_memory_bytes() -> int | None:
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    return int(torch.cuda.max_memory_allocated())
+
+
+def _group_records_by_problem(records: list[EvaluationRecord]) -> dict[str, list[EvaluationRecord]]:
+    by_problem: dict[str, list[EvaluationRecord]] = {}
+    for record in records:
+        by_problem.setdefault(record.problem_id, []).append(record)
+    return by_problem
+
+
+def _write_evaluation_report(
+    eval_run_repo: ModelEvaluationRunRepository,
+    evaluation_run_id: str,
+    *,
+    problems_dir: Path,
+    peak_gpu_memory_bytes: dict[str, int] | None = None,
+) -> ComparisonResult | None:
+    """Compute and persist every spec section 83/84/124-132 artifact from what is
+    durably on disk -- never from in-memory counters (spec section 58's precedent,
+    applied here)."""
+    manifest = eval_run_repo.get_run(evaluation_run_id)
+    generation_records = {
+        variant: eval_run_repo.load_generation_records(evaluation_run_id, variant)
+        for variant in manifest.models_requested
+    }
+    evaluation_records = {
+        variant: eval_run_repo.load_evaluation_records(evaluation_run_id, variant)
+        for variant in manifest.models_requested
+    }
+
+    resolved_config = eval_run_repo.read_config(evaluation_run_id) or {}
+    statistics_config = resolved_config.get("statistics", manifest.statistics_config)
+    success_criteria_config = resolved_config.get("success_criteria", {})
+    try:
+        criteria = SuccessCriteria.from_mapping(success_criteria_config)
+    except ModelEvaluationConfigError:
+        criteria = SuccessCriteria()
+
+    pass_at_k_values = tuple(int(k) for k in statistics_config.get("pass_at_k", [1, 5, 10]))
+    bootstrap_iterations = statistics_config.get("bootstrap_iterations", 1000)
+    bootstrap_seed = statistics_config.get("bootstrap_seed", 42)
+    confidence_level = statistics_config.get("confidence_level", 0.95)
+
+    summary = build_metrics_summary(
+        evaluation_run_id, generation_records, evaluation_records, pass_at_k_values
+    )
+    eval_run_repo.write_metrics(evaluation_run_id, "summary", summary.to_dict())
+
+    pass_at_k_cis: dict[str, dict[str, Any]] = {}
+    for variant, records in evaluation_records.items():
+        by_problem = _group_records_by_problem(records)
+        per_problem_valid = {
+            pid: [r for r in recs if not r.is_infrastructure_error]
+            for pid, recs in by_problem.items()
+        }
+        variant_cis: dict[str, Any] = {}
+        for k in pass_at_k_values:
+            eligible = [
+                (len(valid), sum(1 for r in valid if r.correct))
+                for valid in per_problem_valid.values()
+                if len(valid) >= k
+            ]
+            if not eligible:
+                continue
+            variant_cis[str(k)] = bootstrap_ci(
+                eligible,
+                lambda data, k=k: mean_pass_at_k(list(data), k),
+                iterations=bootstrap_iterations,
+                seed=bootstrap_seed,
+                confidence=confidence_level,
+            )
+        pass_at_k_cis[variant] = variant_cis
+    eval_run_repo.write_metrics(
+        evaluation_run_id,
+        "pass_at_k",
+        {
+            variant: {k: ci.to_dict() for k, ci in by_k.items()}
+            for variant, by_k in pass_at_k_cis.items()
+        },
+    )
+
+    comparison: ComparisonResult | None = None
+    paired_ci = None
+    mcnemar_result = None
+    if "base" in evaluation_records and "dpo" in evaluation_records:
+        base_by_problem = _group_records_by_problem(evaluation_records["base"])
+        dpo_by_problem = _group_records_by_problem(evaluation_records["dpo"])
+        all_problem_ids = sorted(set(base_by_problem) | set(dpo_by_problem))
+        comparison = compare(all_problem_ids, base_by_problem, dpo_by_problem, allow_incomplete=True)
+
+        common = sorted(set(base_by_problem) & set(dpo_by_problem))
+        base_series = []
+        dpo_series = []
+        base_solved: list[bool] = []
+        dpo_solved: list[bool] = []
+        for pid in common:
+            base_valid = [r for r in base_by_problem[pid] if not r.is_infrastructure_error]
+            dpo_valid = [r for r in dpo_by_problem[pid] if not r.is_infrastructure_error]
+            if not base_valid or not dpo_valid:
+                continue
+            base_series.append((len(base_valid), sum(1 for r in base_valid if r.correct)))
+            dpo_series.append((len(dpo_valid), sum(1 for r in dpo_valid if r.correct)))
+            base_solved.append(any(r.correct for r in base_valid))
+            dpo_solved.append(any(r.correct for r in dpo_valid))
+
+        if base_series:
+            paired_ci = paired_bootstrap(
+                base_series,
+                dpo_series,
+                lambda data: mean_pass_at_k(list(data), 1),
+                iterations=bootstrap_iterations,
+                seed=bootstrap_seed,
+                confidence=confidence_level,
+            )
+            eval_run_repo.write_metrics(
+                evaluation_run_id, "bootstrap", {"paired_pass_at_1": paired_ci.to_dict()}
+            )
+        if base_solved:
+            mcnemar_result = mcnemar(base_solved, dpo_solved)
+
+    failure_analysis = build_failure_analysis(generation_records, evaluation_records)
+    eval_run_repo.write_report_json(evaluation_run_id, "failure_analysis", failure_analysis)
+
+    success = evaluate_success_criteria(summary, paired_ci, criteria)
+
+    if comparison is not None:
+        try:
+            problems = load_problems(dataset_path(problems_dir))
+            prompts_by_problem = {p.id: p.prompt for p in problems}
+        except DatasetError:
+            prompts_by_problem = {}
+        improvements, regressions, ties = classify_problem_examples(
+            comparison, generation_records, evaluation_records, prompts_by_problem
+        )
+        eval_run_repo.write_report_jsonl(evaluation_run_id, "improvements", improvements)
+        eval_run_repo.write_report_jsonl(evaluation_run_id, "regressions", regressions)
+        eval_run_repo.write_report_jsonl(evaluation_run_id, "ties", ties)
+
+        report_json = build_comparison_report_json(
+            evaluation_run_id=evaluation_run_id,
+            benchmark_version=manifest.benchmark_version,
+            summary=summary,
+            comparison=comparison,
+            pass_at_k_cis=pass_at_k_cis,
+            paired_pass_at_1_ci=paired_ci,
+            mcnemar_result=mcnemar_result,
+            success=success,
+            failure_analysis=failure_analysis,
+        )
+        eval_run_repo.write_report_json(evaluation_run_id, "base_vs_dpo", report_json)
+
+        markdown = render_markdown_report(
+            evaluation_run_id=evaluation_run_id,
+            benchmark_version=manifest.benchmark_version,
+            benchmark_problem_count=comparison.benchmark_problems,
+            base_model_name=manifest.base_model_name,
+            base_model_revision=manifest.base_model_revision,
+            adapter_path=manifest.adapter_path,
+            training_run_id=manifest.training_run_id,
+            generation_config=manifest.generation_config,
+            summary=summary,
+            comparison=comparison,
+            pass_at_k_cis=pass_at_k_cis,
+            paired_pass_at_1_ci=paired_ci,
+            mcnemar_result=mcnemar_result,
+            success=success,
+            failure_analysis=failure_analysis,
+            generation_records=generation_records,
+            peak_gpu_memory_bytes=peak_gpu_memory_bytes,
+        )
+        eval_run_repo.write_report_text(evaluation_run_id, "base_vs_dpo", markdown)
+
+    return comparison
+
+
+def _cmd_evaluate_model_run(args: argparse.Namespace, config: Config) -> int:
+    """Spec sections 95-101: generate and evaluate Base and/or DPO on a held-out benchmark."""
+    config_path = Path(args.config) if args.config else EVAL_DEFAULT_CONFIG_PATH
+    try:
+        experiment = EvaluationExperimentConfig.load(config_path)
+    except ModelEvaluationConfigError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    overrides: dict[str, Any] = {}
+    if args.num_samples is not None:
+        overrides["num_samples"] = args.num_samples
+    if args.benchmark is not None:
+        overrides["benchmark_name"] = args.benchmark
+    if overrides:
+        try:
+            experiment = experiment.with_overrides(**overrides)
+        except ModelEvaluationConfigError as exc:
+            logger.error("%s", exc)
+            return 1
+
+    if args.smoke_test:
+        # Spec section 100: one sample per problem for the smoke test, regardless of the
+        # configured num_samples. pass_at_k is capped to what one sample can estimate --
+        # the smoke test proves the pipeline runs end to end, not a real pass@5/pass@10.
+        data = experiment.to_dict()
+        data["generation"]["num_samples"] = 1
+        data["statistics"]["pass_at_k"] = [k for k in data["statistics"]["pass_at_k"] if k <= 1] or [1]
+        try:
+            experiment = EvaluationExperimentConfig.from_mapping(data)
+        except ModelEvaluationConfigError as exc:
+            logger.error("%s", exc)
+            return 1
+
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+    except DatasetError as exc:
+        logger.error("%s", exc)
+        return 1
+    problems_by_id = {p.id: p for p in problems}
+
+    try:
+        benchmark = load_benchmark(_benchmarks_root(config), experiment.benchmark.name, problems)
+    except BenchmarkError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    ordered_problems = sorted(benchmark.problems, key=lambda p: p.id)
+    if args.smoke_test:
+        # Spec section 100: 1-3 problems.
+        ordered_problems = ordered_problems[:3]
+    elif args.limit is not None:
+        if args.limit < 1:
+            logger.error("--limit must be at least 1")
+            return 1
+        ordered_problems = ordered_problems[: args.limit]
+    if not ordered_problems:
+        logger.error("no problems selected from benchmark %r", benchmark.benchmark_version)
+        return 1
+    working_benchmark = Benchmark(manifest=benchmark.manifest, problems=tuple(ordered_problems))
+
+    training_run_repo = _training_run_repository(config)
+    try:
+        training_manifest = training_run_repo.get_run(args.training_run_id)
+    except TrainingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+    adapter_dir = training_run_repo.adapter_dir(args.training_run_id)
+
+    models_requested: tuple[str, ...] = (
+        ("base", "dpo") if args.model == "both" else (args.model,)
+    )
+
+    hardware_report = check_hardware(require_quantization=experiment.quantization.enabled)
+    if not hardware_report.passed:
+        sys.stdout.write(format_hardware_report(hardware_report))
+        return 1
+    environment = capture_environment()
+
+    image_error = _ensure_evaluation_image(config.evaluation)
+    if image_error:
+        logger.error("%s", image_error)
+        return 1
+    eval_sandbox_config = build_evaluation_sandbox_config(config.sandbox, config.evaluation)
+
+    eval_run_repo = _model_evaluation_run_repository(config)
+    manifest = eval_run_repo.create_run(
+        benchmark_version=working_benchmark.benchmark_version,
+        benchmark_hash=working_benchmark.manifest.dataset_hash,
+        base_model_name=training_manifest.model_name,
+        base_model_revision=training_manifest.model_revision,
+        adapter_path=str(adapter_dir),
+        training_run_id=args.training_run_id,
+        models_requested=models_requested,
+        generation_config=experiment.generation.to_dict(),
+        quantization=experiment.quantization.to_dict(),
+        statistics_config=experiment.statistics.to_dict(),
+        seeds={"base_seed": experiment.generation.base_seed},
+        hardware=hardware_report.info.to_dict(),
+        environment=environment,
+    )
+    run_id = manifest.evaluation_run_id
+    eval_run_repo.write_config(run_id, experiment.to_dict())
+    eval_run_repo.write_benchmark_manifest(run_id, working_benchmark.manifest.to_dict())
+    eval_run_repo.start_run(run_id)
+    logger.info(
+        "Evaluation run %s created | benchmark=%s (%d problem(s)) | models=%s",
+        run_id,
+        working_benchmark.benchmark_version,
+        len(working_benchmark),
+        ",".join(models_requested),
+    )
+
+    peak_gpu_memory_bytes: dict[str, int] = {}
+
+    try:
+        with eval_run_log_file(eval_run_repo.log_path(run_id)):
+            for variant in models_requested:
+                logger.info("Generating with the %s model...", variant)
+                runner = _build_model_evaluation_runner(
+                    variant, training_manifest, training_run_repo, args.training_run_id, experiment
+                )
+                _reset_peak_gpu_memory()
+                runner.ensure_loaded()
+
+                gen_driver = GenerationDriver(run_id)
+                variant_generations = gen_driver.run(
+                    runner,
+                    working_benchmark,
+                    experiment.generation,
+                    on_record=lambda record, v=variant: eval_run_repo.append_generation_record(
+                        run_id, v, record
+                    ),
+                )
+                memory_bytes = _peak_gpu_memory_bytes()
+                if memory_bytes is not None:
+                    peak_gpu_memory_bytes[variant] = memory_bytes
+                runner.unload()
+
+                logger.info("Evaluating %s candidates through the sandbox...", variant)
+                repository = eval_run_repo.sandbox_repository(run_id, variant)
+                evaluator = CandidateEvaluator(
+                    runner=PytestRunner(SandboxExecutor(config=eval_sandbox_config)),
+                    repository=repository,
+                )
+                eval_driver = EvaluationDriver(
+                    evaluator=evaluator,
+                    repository=repository,
+                    evaluation_run_id=run_id,
+                    model_variant=variant,
+                    model_name=training_manifest.model_name,
+                    model_revision=training_manifest.model_revision,
+                    generation_config=experiment.generation.to_dict(),
+                )
+                eval_driver.run(
+                    variant_generations,
+                    problems_by_id,
+                    on_record=lambda record, v=variant: eval_run_repo.append_evaluation_record(
+                        run_id, v, record
+                    ),
+                )
+    except KeyboardInterrupt:
+        eval_run_repo.interrupt_run(run_id)
+        logger.warning("Evaluation run %s interrupted", run_id)
+        return 130
+    except (ModelEvaluationError, ModelDependencyError) as exc:
+        eval_run_repo.fail_run(run_id, error_type=type(exc).__name__, error_message=str(exc))
+        logger.error("%s", exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - record, then re-report
+        eval_run_repo.fail_run(run_id, error_type=type(exc).__name__, error_message=str(exc))
+        logger.error("evaluation failed (%s): %s", type(exc).__name__, exc)
+        return 1
+
+    eval_run_repo.complete_run(run_id)
+    if peak_gpu_memory_bytes:
+        eval_run_repo.write_metrics(run_id, "peak_gpu_memory", peak_gpu_memory_bytes)
+    comparison = _write_evaluation_report(
+        eval_run_repo,
+        run_id,
+        problems_dir=config.paths.problems,
+        peak_gpu_memory_bytes=peak_gpu_memory_bytes,
+    )
+
+    sys.stdout.write(f"Evaluation run {run_id} completed.\n")
+    if comparison is not None:
+        sys.stdout.write(
+            f"  DPO wins: {comparison.dpo_wins} | ties: {comparison.ties} | "
+            f"losses: {comparison.dpo_losses}\n"
+        )
+    return 0
+
+
+def _cmd_evaluate_model_validate(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 102."""
+    eval_run_repo = _model_evaluation_run_repository(config)
+    try:
+        manifest = eval_run_repo.get_run(args.evaluation_run_id)
+    except ModelEvalRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    problems_ok = True
+    try:
+        problems = load_problems(dataset_path(config.paths.problems))
+        benchmark_manifest = eval_run_repo.read_benchmark_manifest(args.evaluation_run_id)
+        if benchmark_manifest is None:
+            raise BenchmarkError("no benchmark_manifest.json recorded for this run")
+        load_benchmark(_benchmarks_root(config), manifest.benchmark_version, problems)
+    except (DatasetError, BenchmarkError) as exc:
+        logger.error("benchmark integrity: %s", exc)
+        problems_ok = False
+
+    training_run_repo = _training_run_repository(config)
+    identity_ok = True
+    try:
+        training_manifest = training_run_repo.get_run(manifest.training_run_id)
+        if training_manifest.model_name != manifest.base_model_name:
+            raise ModelEvaluationError(
+                f"recorded base model {manifest.base_model_name!r} does not match "
+                f"training run {manifest.training_run_id!r}'s model "
+                f"{training_manifest.model_name!r}"
+            )
+    except (TrainingRunNotFoundError, ModelEvaluationError) as exc:
+        logger.error("model identity: %s", exc)
+        identity_ok = False
+
+    adapter_ok = True
+    if "dpo" in manifest.models_requested:
+        try:
+            verify_adapter_integrity(Path(manifest.adapter_path), manifest.base_model_name)
+        except Exception as exc:  # noqa: BLE001 - report every integrity failure the same way
+            logger.error("adapter identity: %s", exc)
+            adapter_ok = False
+
+    counts_ok = True
+    for variant in manifest.models_requested:
+        generations = eval_run_repo.load_generation_records(args.evaluation_run_id, variant)
+        evaluations = eval_run_repo.load_evaluation_records(args.evaluation_run_id, variant)
+        generated = sum(1 for g in generations if g.status == "generated")
+        if generated != len(evaluations):
+            logger.error(
+                "candidate counts: %s has %d generated candidate(s) but %d evaluation "
+                "record(s)",
+                variant,
+                generated,
+                len(evaluations),
+            )
+            counts_ok = False
+
+    pairing_ok = True
+    if set(("base", "dpo")) <= set(manifest.models_requested):
+        base_gen = {
+            (g.problem_id, g.sample_index): g.seed
+            for g in eval_run_repo.load_generation_records(args.evaluation_run_id, "base")
+        }
+        dpo_gen = {
+            (g.problem_id, g.sample_index): g.seed
+            for g in eval_run_repo.load_generation_records(args.evaluation_run_id, "dpo")
+        }
+        if set(base_gen) != set(dpo_gen) or any(
+            base_gen[key] != dpo_gen[key] for key in base_gen
+        ):
+            logger.error("prompt/seed pairing: base and DPO do not share an identical schedule")
+            pairing_ok = False
+
+    ok = problems_ok and identity_ok and adapter_ok and counts_ok and pairing_ok
+    if ok:
+        sys.stdout.write(f"Evaluation run {args.evaluation_run_id} validation passed.\n")
+        return 0
+    sys.stdout.write(f"Evaluation run {args.evaluation_run_id} validation FAILED.\n")
+    return 1
+
+
+def _cmd_evaluate_model_report(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 103."""
+    eval_run_repo = _model_evaluation_run_repository(config)
+    try:
+        eval_run_repo.get_run(args.evaluation_run_id)
+    except ModelEvalRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    peak_memory = eval_run_repo.read_metrics(args.evaluation_run_id, "peak_gpu_memory") or {}
+    comparison = _write_evaluation_report(
+        eval_run_repo,
+        args.evaluation_run_id,
+        problems_dir=config.paths.problems,
+        peak_gpu_memory_bytes=peak_memory,
+    )
+    if comparison is None:
+        sys.stdout.write(
+            f"Metrics written for {args.evaluation_run_id}. Full base_vs_dpo report needs "
+            "both base and dpo to have been evaluated.\n"
+        )
+        return 0
+
+    markdown_path = eval_run_repo.reports_dir(args.evaluation_run_id) / "base_vs_dpo.md"
+    sys.stdout.write(markdown_path.read_text(encoding="utf-8"))
+    return 0
+
+
+def _cmd_evaluate_model_stats(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 104."""
+    eval_run_repo = _model_evaluation_run_repository(config)
+    try:
+        eval_run_repo.get_run(args.evaluation_run_id)
+    except ModelEvalRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    comparison = _write_evaluation_report(
+        eval_run_repo, args.evaluation_run_id, problems_dir=config.paths.problems
+    )
+    pass_at_k = eval_run_repo.read_metrics(args.evaluation_run_id, "pass_at_k") or {}
+    bootstrap = eval_run_repo.read_metrics(args.evaluation_run_id, "bootstrap") or {}
+
+    sys.stdout.write(f"pass@k confidence intervals:\n{pass_at_k}\n\n")
+    sys.stdout.write(f"paired bootstrap:\n{bootstrap}\n\n")
+    if comparison is not None:
+        sys.stdout.write(
+            f"win/tie/loss: wins={comparison.dpo_wins} ties={comparison.ties} "
+            f"losses={comparison.dpo_losses} win_rate={comparison.dpo_win_rate:.4f}\n"
+        )
+    return 0
+
+
+def _cmd_evaluate_model_compare(args: argparse.Namespace, config: Config) -> int:
+    """Spec sections 136, 137: compare several training runs' evaluation results."""
+    eval_run_repo = _model_evaluation_run_repository(config)
+    run_ids = [r.strip() for r in args.runs.split(",") if r.strip()]
+    if not run_ids:
+        logger.error("--runs must name at least one evaluation run id")
+        return 1
+
+    header = f"{'EVALUATION_RUN_ID':<28}{'TRAINING_RUN_ID':<24}{'pass@1':<10}{'pass@5':<10}{'pass@10':<10}{'WIN/TIE/LOSS'}"
+    lines = [header]
+    for run_id in run_ids:
+        try:
+            manifest = eval_run_repo.get_run(run_id)
+        except ModelEvalRunNotFoundError as exc:
+            logger.error("%s", exc)
+            return 1
+        summary_data = eval_run_repo.read_metrics(run_id, "summary") or {}
+        pass_at_k = summary_data.get("pass_at_k", {}).get("dpo", {})
+        comparison = _write_evaluation_report(
+            eval_run_repo, run_id, problems_dir=config.paths.problems
+        )
+        wtl = (
+            f"{comparison.dpo_wins}/{comparison.ties}/{comparison.dpo_losses}"
+            if comparison is not None
+            else "n/a"
+        )
+        lines.append(
+            f"{run_id:<28}{manifest.training_run_id:<24}"
+            f"{pass_at_k.get('1', 0.0):<10.4f}{pass_at_k.get('5', 0.0):<10.4f}"
+            f"{pass_at_k.get('10', 0.0):<10.4f}{wtl}"
+        )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_evaluate_model_list(args: argparse.Namespace, config: Config) -> int:
+    eval_run_repo = _model_evaluation_run_repository(config)
+    runs = eval_run_repo.list_runs()
+    if not runs:
+        sys.stdout.write("No evaluation runs found.\n")
+        return 0
+    header = f"{'EVALUATION_RUN_ID':<28}{'BENCHMARK':<20}{'TRAINING_RUN_ID':<24}{'STATUS':<14}{'CREATED_AT'}"
+    lines = [header]
+    for m in runs:
+        lines.append(
+            f"{m.evaluation_run_id:<28}{m.benchmark_version:<20}{m.training_run_id:<24}"
+            f"{m.status:<14}{m.created_at}"
+        )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _add_evaluate_model_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "evaluate-model",
+        help="Compare Base Qwen against the DPO-trained adapter on a held-out benchmark.",
+        description=(
+            "Stage 10: generate and sandbox-evaluate Base Qwen and Base+DPO-adapter on "
+            "the same held-out problems, prompts, generation config and seeds, then "
+            "report pass@k, win/tie/loss, and bootstrap confidence intervals. Never "
+            "modifies the model, the training data, or the benchmark, and never "
+            "automatically promotes a model."
+        ),
+    )
+    eval_subparsers = parser.add_subparsers(dest="evaluate_model_command")
+
+    # The bare `evaluate-model --benchmark ... --training-run-id ...` form (spec section
+    # 95) and the subcommands below (spec sections 102-104, 136-137) coexist by having
+    # the group's own default action run the evaluation, with every argument attached to
+    # the top-level parser rather than a `run` subcommand. Argparse gives a subcommand's
+    # own `set_defaults(func=...)` priority over this one once that subcommand is chosen,
+    # so this default only ever runs for the bare form.
+    parser.add_argument("--benchmark", default=None, help="Benchmark name (default: config.yaml value).")
+    parser.add_argument("--training-run-id", required=False, default=None, dest="training_run_id")
+    parser.add_argument(
+        "--model", choices=("base", "dpo", "both"), default="both",
+        help="Which model variant(s) to evaluate (default: both).",
+    )
+    parser.add_argument("--num-samples", type=int, default=None, dest="num_samples")
+    parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N benchmark problems.")
+    parser.add_argument("--smoke-test", action="store_true", dest="smoke_test")
+    parser.add_argument("--config", default=None, help=f"Evaluation config YAML (default: {EVAL_DEFAULT_CONFIG_PATH}).")
+
+    def _run_default(args: argparse.Namespace, config: Config) -> int:
+        if not args.training_run_id:
+            logger.error("--training-run-id is required")
+            return 1
+        return _cmd_evaluate_model_run(args, config)
+
+    parser.set_defaults(func=_run_default)
+
+    validate_parser = eval_subparsers.add_parser(
+        "validate", help="Validate an evaluation run's integrity."
+    )
+    validate_parser.add_argument("--evaluation-run-id", required=True, dest="evaluation_run_id")
+    validate_parser.set_defaults(func=_cmd_evaluate_model_validate)
+
+    report_parser = eval_subparsers.add_parser(
+        "report", help="(Re)generate base_vs_dpo.md / .json for an evaluation run."
+    )
+    report_parser.add_argument("--evaluation-run-id", required=True, dest="evaluation_run_id")
+    report_parser.set_defaults(func=_cmd_evaluate_model_report)
+
+    stats_parser = eval_subparsers.add_parser(
+        "stats", help="Show pass@k confidence intervals and win/tie/loss."
+    )
+    stats_parser.add_argument("--evaluation-run-id", required=True, dest="evaluation_run_id")
+    stats_parser.set_defaults(func=_cmd_evaluate_model_stats)
+
+    compare_parser = eval_subparsers.add_parser(
+        "compare", help="Compare several evaluation runs side by side."
+    )
+    compare_parser.add_argument("--runs", required=True, help="Comma-separated evaluation run ids.")
+    compare_parser.set_defaults(func=_cmd_evaluate_model_compare)
+
+    list_parser = eval_subparsers.add_parser("list", help="List evaluation runs.")
+    list_parser.set_defaults(func=_cmd_evaluate_model_list)
+
+
 # ------------------------------------------------------------------------------- sandbox
 
 
@@ -2712,6 +3557,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_rankings_parser(subparsers)
     _add_preferences_parser(subparsers)
     _add_train_parser(subparsers)
+    _add_benchmark_parser(subparsers)
+    _add_evaluate_model_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

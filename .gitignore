@@ -239,4 +239,6 @@ data/training/runs/*/adapter/ref/
 data/training/runs/*/adapter/tokenizer.json
 # ...but a training run's own log IS provenance, so it overrides the global *.log rule.
 !data/training/runs/*/logs/*.log
+# Same for a Stage 10 model-evaluation run's log.
+!data/model_evaluations/runs/*/logs/*.log
 !data/**/.gitkeep

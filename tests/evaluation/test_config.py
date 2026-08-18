@@ -100,6 +100,7 @@ def test_config_loader_wraps_evaluation_errors_as_config_errors(tmp_path):
         "  candidates: data/candidates\n  evaluations: data/evaluations\n"
         "  rankings: data/rankings\n"
         "  preferences: data/preferences\n  training: data/training\n"
+            "  model_evaluations: data/model_evaluations\n"
             "  reports: data/reports\n"
         "logging:\n  level: INFO\n"
         "model:\n  provider: mock\n  name: mock/x\n"

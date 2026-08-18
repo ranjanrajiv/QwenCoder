@@ -38,6 +38,7 @@ def test_config_loads_real_config_yaml():
         config.paths.rankings,
         config.paths.preferences,
         config.paths.training,
+        config.paths.model_evaluations,
         config.paths.reports,
     ):
         assert path.is_absolute()
@@ -67,6 +68,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         rankings=tmp_path / "rankings",
         preferences=tmp_path / "preferences",
         training=tmp_path / "training",
+        model_evaluations=tmp_path / "model_evaluations",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()
@@ -78,6 +80,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         paths.rankings,
         paths.preferences,
         paths.training,
+        paths.model_evaluations,
         paths.reports,
     ):
         assert path.is_dir()
@@ -92,6 +95,7 @@ def test_real_data_directories_exist():
         "rankings",
         "preferences",
         "training",
+        "model_evaluations",
         "reports",
     ):
         assert (PROJECT_ROOT / "data" / name).is_dir()
@@ -795,3 +799,127 @@ def test_bad_split_ratios_are_rejected():
     )
     assert result.returncode == 1
     assert "sum to 1.0" in result.stderr
+
+
+# ---------------------------------------------------------------------------- benchmark
+
+
+def test_benchmark_is_not_a_placeholder():
+    assert "benchmark" not in _PLACEHOLDER_STAGES
+
+
+def test_benchmark_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["benchmark", "build", "--name", "python_eval_v1"])
+    assert args.name == "python_eval_v1"
+    assert args.problem_id is None
+    assert args.exclude_preference_run_id is None
+
+    args = parser.parse_args(
+        [
+            "benchmark", "build", "--name", "python_eval_v1",
+            "--problem-id", "p001", "--problem-id", "p002",
+        ]
+    )
+    assert args.problem_id == ["p001", "p002"]
+
+    args = parser.parse_args(["benchmark", "validate", "--benchmark", "python_eval_v1"])
+    assert args.benchmark == "python_eval_v1"
+
+    args = parser.parse_args(
+        [
+            "benchmark", "check-leakage",
+            "--benchmark", "python_eval_v1", "--preference-run-id", "pref_x",
+        ]
+    )
+    assert args.preference_run_id == "pref_x"
+
+
+def test_bare_benchmark_prints_help_and_returns_nonzero():
+    result = _run_module("benchmark")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_benchmark_validate_reports_unknown_benchmark():
+    result = _run_module("benchmark", "validate", "--benchmark", "does_not_exist_v1")
+    assert result.returncode == 1
+    assert "does_not_exist_v1" in result.stderr
+
+
+def test_benchmark_check_leakage_reports_unknown_preference_run():
+    result = _run_module(
+        "benchmark", "check-leakage",
+        "--benchmark", "python_eval_v1", "--preference-run-id", "pref_does_not_exist",
+    )
+    assert result.returncode == 1
+    assert "pref_does_not_exist" in result.stderr
+
+
+# ------------------------------------------------------------------------ evaluate-model
+
+
+def test_evaluate_model_is_not_a_placeholder():
+    assert "evaluate-model" not in _PLACEHOLDER_STAGES
+
+
+def test_evaluate_model_bare_form_parses():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["evaluate-model", "--benchmark", "python_eval_v1", "--training-run-id", "dpo_x"]
+    )
+    assert args.benchmark == "python_eval_v1"
+    assert args.training_run_id == "dpo_x"
+    assert args.model == "both"
+    assert args.num_samples is None
+    assert args.limit is None
+    assert args.smoke_test is False
+    assert callable(args.func)
+
+
+def test_evaluate_model_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["evaluate-model", "validate", "--evaluation-run-id", "eval_x"])
+    assert args.evaluation_run_id == "eval_x"
+
+    args = parser.parse_args(["evaluate-model", "report", "--evaluation-run-id", "eval_x"])
+    assert args.evaluation_run_id == "eval_x"
+
+    args = parser.parse_args(["evaluate-model", "stats", "--evaluation-run-id", "eval_x"])
+    assert args.evaluation_run_id == "eval_x"
+
+    args = parser.parse_args(["evaluate-model", "compare", "--runs", "eval_a,eval_b"])
+    assert args.runs == "eval_a,eval_b"
+
+    assert callable(parser.parse_args(["evaluate-model", "list"]).func)
+
+
+def test_evaluate_model_bare_requires_training_run_id():
+    result = _run_module("evaluate-model", "--benchmark", "python_eval_v1")
+    assert result.returncode == 1
+    assert "--training-run-id" in result.stderr
+
+
+def test_evaluate_model_validate_reports_unknown_run():
+    result = _run_module("evaluate-model", "validate", "--evaluation-run-id", "eval_does_not_exist")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr
+
+
+def test_evaluate_model_report_reports_unknown_run():
+    result = _run_module("evaluate-model", "report", "--evaluation-run-id", "eval_does_not_exist")
+    assert result.returncode == 1
+    assert "eval_does_not_exist" in result.stderr
+
+
+def test_evaluate_model_run_reports_unknown_training_run_id():
+    result = _run_module(
+        "evaluate-model",
+        "--benchmark", "python_eval_v1",
+        "--training-run-id", "dpo_does_not_exist",
+        "--smoke-test",
+    )
+    assert result.returncode == 1
+    assert "dpo_does_not_exist" in result.stderr

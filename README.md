@@ -3,16 +3,17 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 9 — DPO/QLoRA Training.** The foundation (packaging,
+**Current status: Stage 10 — Base vs DPO Model Evaluation.** The foundation (packaging,
 CLI, logging, typed configuration), the ground-truth layer (10 curated Python problems
 with trusted reference solutions and executable tests), candidate generation with a Qwen
 Coder model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic
 persistence, resume, retry, integrity validation), an isolated Docker execution sandbox, a
 pytest-based candidate test executor, deterministic candidate ranking, DPO preference
-pair generation, and QLoRA/DPO training are in place. No trained-model evaluation exists
-yet — and **generated code, and the tests generated for it, are executed only inside the
-sandbox, never on the host**; ranking, preference-pair generation and training never
-execute candidate code at all.
+pair generation, QLoRA/DPO training, and base-vs-DPO model evaluation are all in place.
+**Generated code, and the tests generated for it, are executed only inside the sandbox,
+never on the host**; ranking, preference-pair generation and training never execute
+candidate code at all, and Stage 10 reuses the Stage 5/6 sandbox unmodified rather than
+adding a second execution path.
 
 ## Planned pipeline
 
@@ -34,15 +35,17 @@ Preference Pair Generation
 DPO Dataset
       ↓
 QLoRA + DPO Training
+      ↓
+Base vs DPO Model Evaluation
 ```
 
-The first nine stages are implemented. Everything from trained-model evaluation onward
+The first ten stages are implemented. Everything beyond model evaluation (stages 11-12)
 is still a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Nine have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Ten have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -56,9 +59,10 @@ far:
 | 7 — Candidate Ranking | Correctness classification, scoring, deterministic per-problem ranking, pairwise comparison | Done |
 | 8 — Preference Pair Generation | `{prompt, chosen, rejected}` DPO pairs, selection policies, dedup, problem-level splits | Done |
 | 9 — DPO/QLoRA Training | 4-bit NF4 QLoRA + TRL DPOTrainer, preflight, metrics, adapter reload | Done |
-| 10–12 — Evaluation and beyond | Programming benchmark, trained-vs-base comparison | Not started |
+| 10 — Base vs DPO Model Evaluation | Held-out benchmark, paired generation, pass@k, bootstrap CIs, win/tie/loss | Done |
+| 11–12 — Beyond evaluation | Not yet specified | Not started |
 
-Stages 10–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 11–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -81,7 +85,8 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
 │   ├── ranking/           # Stage 7: correctness classification, scoring, ranking
 │   ├── preferences/       # Stage 8: {prompt, chosen, rejected} DPO pair generation
-│   └── training/          # Stage 9: 4-bit QLoRA + DPO training of a LoRA adapter
+│   ├── training/          # Stage 9: 4-bit QLoRA + DPO training of a LoRA adapter
+│   └── model_evaluation/  # Stage 10: base-vs-DPO evaluation, pass@k, bootstrap CIs
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
@@ -90,12 +95,15 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── evaluations/runs/           # Stage 6: one directory per evaluation run
 │   ├── rankings/runs/              # Stage 7: one directory per ranking run
 │   ├── preferences/runs/           # Stage 8: one directory per preference run
-│   └── training/runs/              # Stage 9: one directory per training run
+│   ├── training/runs/              # Stage 9: one directory per training run
+│   └── model_evaluations/runs/     # Stage 10: one directory per evaluation run
+├── benchmarks/             # Stage 10: held-out evaluation benchmark manifests
 ├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
 ├── scripts/               # operational scripts (real-model smoke test)
 ├── configs/training/      # Stage 9: DPO/QLoRA experiment configurations
+├── configs/evaluation/    # Stage 10: base-vs-DPO evaluation configurations
 ├── config.yaml            # project name, data paths, logging, model, generation, sandbox, evaluation
 └── CLAUDE.md              # engineering rules for this project
 ```
@@ -117,7 +125,8 @@ model:
 
 ```bash
 pip install -e ".[model]"     # torch, transformers, accelerate (~2.5 GB of wheels)
-pip install -e ".[training]"  # adds trl, peft, bitsandbytes, datasets (Stage 9)
+pip install -e ".[training]"  # adds trl, peft, bitsandbytes, datasets (Stage 9; also
+                               # what `evaluate-model` needs for quantized/adapter inference)
 ```
 
 If a gated or private model is configured, export `HF_TOKEN` in your shell. It is read
@@ -1059,3 +1068,111 @@ pytest -q -m gpu   # the real stack: 4-bit load, LoRA, a training step, adapter 
 
 The GPU suite **fails rather than skips** when CUDA or the training extra is missing, for
 the same reason the Docker suites do: a quietly-unrun QLoRA suite is worse than a red one.
+
+## Stage 10 — Base vs DPO Model Evaluation
+
+### Purpose
+
+Every stage so far deferred the question this one finally asks:
+
+> Did DPO actually make Qwen better at Python programming?
+
+Base Qwen and base+adapter are generated against the **identical** held-out benchmark,
+prompts, generation config and seeds, evaluated through the **unmodified** Stage 5/6
+sandbox, and compared with pass@k, bootstrap confidence intervals, and win/tie/loss. Four
+rules govern it: **the benchmark is never used to tune anything** (consulting it to change
+beta, LoRA rank, epochs or the preference policy means a new experiment, not a better
+number); **correctness comes from execution, not judgement** (no LLM judge anywhere);
+**the comparison isolates the adapter** (same prompt, same chat template, same seeds, same
+quantization — the only difference is base weights versus base + adapter); and **no
+automatic promotion** (the stage produces evidence and a `DPO_SUCCESS` verdict against
+configurable criteria, never a production decision).
+
+### The benchmark, and its ceiling
+
+`python_eval_v1` is the 7 problems never assigned to any Stage 8 preference split
+(`p001, p002, p003, p004, p005, p006, p009` — `p007`/`p008` trained, `p010` validated).
+From the committed Stage 6/7 evidence, 5 of those 7 are already solved by every one of the
+base model's 5 Stage 3 candidates — a hard ceiling that bounds what this benchmark can
+show. Selecting only the 2 problems with headroom was rejected as contamination: a
+benchmark chosen by inspecting base-model results is no longer held out.
+
+```bash
+python -m python_dpo benchmark build --name python_eval_v1 \
+    --exclude-preference-run-id pref_20260818_074347_5eff
+```
+```
+Benchmark python_eval_v1 built: 7 problem(s)
+  problem_ids: p001, p002, p003, p004, p005, p006, p009
+  dataset_hash: 600953284286b946508c563b2b47a52a48b1572bfb2d911a4081e5fb8a2d6d31
+```
+
+### Running the evaluation
+
+```bash
+python -m python_dpo benchmark validate --benchmark python_eval_v1
+python -m python_dpo benchmark check-leakage --benchmark python_eval_v1 \
+    --preference-run-id pref_20260818_074347_5eff
+python -m python_dpo evaluate-model --benchmark python_eval_v1 \
+    --training-run-id TRAIN_ID --smoke-test    # 3 problems, 1 sample, both models
+python -m python_dpo evaluate-model --benchmark python_eval_v1 \
+    --training-run-id TRAIN_ID --num-samples 10  # the real run: 7 problems x 10 samples x 2 models
+python -m python_dpo evaluate-model validate --evaluation-run-id EVAL_ID
+python -m python_dpo evaluate-model report   --evaluation-run-id EVAL_ID
+python -m python_dpo evaluate-model stats    --evaluation-run-id EVAL_ID
+```
+
+`--dry-run`-style staging isn't needed here the way it is for training: `--smoke-test`
+takes the same code path as a real run (paired generation, sandboxed evaluation, the full
+report) and simply stops after 3 problems and 1 sample.
+
+### Persisted evidence
+
+```
+benchmarks/python_eval_v1/manifest.json          # ids + hash; problems stay in problems.jsonl
+
+data/model_evaluations/runs/eval_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json, config.yaml, benchmark_manifest.json
+├── generations/{base,dpo}.jsonl        # every attempted generation, including failures
+├── evaluations/{base,dpo}.jsonl        # curated per-candidate outcomes
+├── evaluations/_sandbox/{base,dpo}/    # unmodified Stage 6 output, for forensics
+├── metrics/{summary,pass_at_k,bootstrap}.json
+├── reports/base_vs_dpo.{md,json}
+├── reports/{improvements,regressions,ties}.jsonl
+└── reports/failure_analysis.json
+```
+
+### What the committed run shows
+
+The committed adapter (`dpo_20260818_081231_a91d`) trained for a **single optimizer
+step** over 3 preference pairs — Stage 9's own headline is that this proves the QLoRA/DPO
+stack works, not that it adapted the model. Stage 10's job here is symmetric: prove the
+*evaluation* apparatus works end to end, honestly report what a one-step adapter produces
+on a 7-problem, ceiling-heavy benchmark, and leave the model-performance question open for
+a better-trained adapter to actually answer.
+
+```
+Benchmark:      python_eval_v1 (7 problems, ceiling on 5 of them)
+Base pass@1:    77.1%   (pass@5 85.7%, pass@10 85.7%)
+DPO pass@1:     78.6%   (pass@5 85.7%, pass@10 85.7%)
+Improvement:    +1.4 pp   (paired bootstrap 95% CI [+0.0, +4.3] pp)
+Win/Tie/Loss:   0 / 7 / 0   (problem-level: both solve/fail the same problems overall)
+DPO_SUCCESS:    False   (+1.4 pp is below the configured 2 pp minimum-improvement gate)
+```
+
+`eval_20260818_155511_1633`, committed alongside this code. A +1.4 percentage-point
+pass@1 nudge from a **single optimizer step** is exactly the noise-level, no-measurable-
+difference result the plan predicted — the seven candidates that flipped a sample from
+wrong to right did not change which *problems* got solved overall, hence 0 wins and 0
+losses at the problem level. Per spec section 144: 7 problems is suitable for pipeline
+validation, not for reliable model-performance conclusions — the pipeline is what this
+run validates, and it produced a paired, bootstrapped, honestly-reported "no" rather than
+a manufactured "yes."
+
+### Testing
+
+```bash
+pytest -q                  # offline, zero skips — pass@k, bootstrap, comparison, benchmark
+pytest -q -m integration   # Docker: EvaluationDriver through the real Stage 6 sandbox
+pytest -q -m gpu           # CUDA: adapter isolation, integrity failures, smoke generation
+```

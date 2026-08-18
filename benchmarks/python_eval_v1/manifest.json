@@ -1,0 +1,16 @@
+{
+  "benchmark_version": "python_eval_v1",
+  "creation_date": "2026-08-18T15:35:06Z",
+  "dataset_hash": "600953284286b946508c563b2b47a52a48b1572bfb2d911a4081e5fb8a2d6d31",
+  "problem_count": 7,
+  "problem_ids": [
+    "p001",
+    "p002",
+    "p003",
+    "p004",
+    "p005",
+    "p006",
+    "p009"
+  ],
+  "source_dataset_version": "0.1.0"
+}

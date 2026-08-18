@@ -23,6 +23,7 @@ _REQUIRED_PATH_KEYS = (
     "rankings",
     "preferences",
     "training",
+    "model_evaluations",
     "reports",
 )
 
@@ -101,6 +102,7 @@ class Paths:
     rankings: Path
     preferences: Path
     training: Path
+    model_evaluations: Path
     reports: Path
 
     def ensure_exists(self) -> None:
@@ -112,6 +114,7 @@ class Paths:
             self.rankings,
             self.preferences,
             self.training,
+            self.model_evaluations,
             self.reports,
         ):
             path.mkdir(parents=True, exist_ok=True)
@@ -294,6 +297,7 @@ class Config:
             rankings=resolved_paths["rankings"],
             preferences=resolved_paths["preferences"],
             training=resolved_paths["training"],
+            model_evaluations=resolved_paths["model_evaluations"],
             reports=resolved_paths["reports"],
         )
 

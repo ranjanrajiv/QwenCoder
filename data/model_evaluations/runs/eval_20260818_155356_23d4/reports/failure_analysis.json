@@ -1,0 +1,20 @@
+{
+  "base": {
+    "assertion_failure": 1,
+    "generation_error": 0,
+    "import_error": 0,
+    "infrastructure_error": 0,
+    "runtime_error": 0,
+    "syntax_error": 0,
+    "timeout": 0
+  },
+  "dpo": {
+    "assertion_failure": 1,
+    "generation_error": 0,
+    "import_error": 0,
+    "infrastructure_error": 0,
+    "runtime_error": 0,
+    "syntax_error": 0,
+    "timeout": 0
+  }
+}

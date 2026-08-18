@@ -1,10 +1,11 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 9 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 10 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
 configuration — the problem dataset, the model abstraction, candidate generation, a
 reliable per-run persistence layer, the isolated Docker sandbox, the candidate test
-executor, candidate ranking, DPO preference pair generation, and DPO/QLoRA training.
+executor, candidate ranking, DPO preference pair generation, DPO/QLoRA training, and
+base-vs-DPO model evaluation.
 
 ## Subpackages
 
@@ -84,11 +85,22 @@ stage makes no claim about Python performance, which is Step 10's job. Every hea
 (torch, transformers, trl, peft, bitsandbytes) is deferred into the function that needs it.
 See its [README](training/README.md).
 
+### [`model_evaluation/`](model_evaluation/)
+
+Introduced in Stage 10. Answers, with sandboxed execution evidence rather than
+training-loss numbers, whether the Stage 9 adapter actually improved Python correctness:
+base Qwen and base+adapter are generated against the identical held-out benchmark,
+prompts, generation config and seeds, evaluated through the unmodified Stage 5/6 sandbox,
+and compared with pass@k, bootstrap confidence intervals, and win/tie/loss. The benchmark
+is never consulted to tune anything, and no automatic model promotion occurs —
+`DPO_SUCCESS` is evidence against configurable criteria, not a production decision. Every
+heavy import is deferred, matching `training/`. See its [README](model_evaluation/README.md).
+
 ## Files
 
 ### `__init__.py`
 
-Defines `__version__ = "0.9.0"` and `__all__ = ["__version__"]`. This is the single
+Defines `__version__ = "0.10.0"` and `__all__ = ["__version__"]`. This is the single
 source of truth for the package version — `pyproject.toml` reads it dynamically via
 `[tool.setuptools.dynamic]` so the two can never drift. Deliberately has no other
 imports, so `import python_dpo` stays cheap and has no dependency side effects.
@@ -123,7 +135,8 @@ keeps runtime dependencies minimal).
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
   `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`,
-  `rank`, `rankings`, `preferences`, `train`, and the `run` placeholder.
+  `rank`, `rankings`, `preferences`, `train`, `benchmark`, `evaluate-model`, and the
+  `run` placeholder.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -181,6 +194,24 @@ keeps runtime dependencies minimal).
   real run and stop early, so what they validate is the code that actually trains. Every
   hyperparameter is overridable per invocation (`--learning-rate`, `--beta`, `--epochs`,
   `--max-steps`, `--seed`, `--lora-r`), so changing one never requires editing YAML.
+- `benchmark build --name NAME [--problem-id ...] [--exclude-preference-run-id ID]` /
+  `benchmark validate --benchmark NAME` / `benchmark check-leakage --benchmark NAME
+  --preference-run-id ID` (Stage 10) build and verify a held-out evaluation benchmark.
+  `validate` recomputes the dataset hash and fails on drift; `check-leakage` asserts the
+  benchmark is disjoint from a preference run's train/validation splits, raising on any
+  overlap rather than warning.
+- `evaluate-model --benchmark NAME --training-run-id ID [--model base|dpo|both]
+  [--num-samples N] [--limit N] [--smoke-test] [--config PATH]` (Stage 10) is a command
+  **group with a default action**: the bare form above generates and sandbox-evaluates
+  base Qwen and/or the DPO adapter on the same held-out problems, prompts, generation
+  config and seeds, then writes the full comparison report. `evaluate-model validate
+  --evaluation-run-id ID` checks benchmark/model/adapter identity, prompt pairing and
+  candidate-count completeness; `evaluate-model report` / `evaluate-model stats`
+  regenerate the report/statistics from persisted records (never in-memory counters);
+  `evaluate-model compare --runs ID,ID,...` tabulates several evaluation runs side by
+  side; `evaluate-model list` discovers run ids. No automatic model promotion occurs —
+  `DPO_SUCCESS` in the report is evidence against configurable criteria, never a
+  deployment decision.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -233,6 +264,11 @@ on `PyYAML` (spec §6 exception).
   `training.config.ExperimentConfig` rather than by this module. A second experiment is a
   second file; and `ModelConfig.quantization` still rejects any non-null value, so the
   root config could not express 4-bit NF4 in any case. Only `paths.training` is added here.
+- **No `model_evaluation:` section either (Stage 10), for the same reason.** Evaluation
+  parameters live in a standalone `configs/evaluation/python_eval.yaml`, loaded by
+  `model_evaluation.config.EvaluationExperimentConfig`. Only `paths.model_evaluations` is
+  added here — the **ninth** data path, threaded through `_REQUIRED_PATH_KEYS`, `Paths`,
+  and `ensure_exists()`.
 - **No `ranking:` section (Stage 7).** Ranking has no tunable scoring parameters in v1 —
   every run's algorithm versions (`ranking_version`/`scoring_version`/
   `comparator_version`) and an empty `scoring_configuration` are recorded on

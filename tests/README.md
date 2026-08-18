@@ -3,16 +3,17 @@
 The project's test suite. The default run (`pytest -q`) is offline and CPU-only — no
 network access, no GPU, no Docker, no Qwen model — and nothing is skipped.
 
-Docker tests — the sandbox security suite and the candidate test executor's integration
-suite — are marked `@pytest.mark.integration`, and the Stage 9 training suite is marked
-`@pytest.mark.gpu`. Both are **deselected by default**
+Docker tests — the sandbox security suite, the candidate test executor's integration
+suite, and Stage 10's `EvaluationDriver` reuse test — are marked `@pytest.mark.integration`,
+and the Stage 9 training suite and Stage 10's runner suite are marked `@pytest.mark.gpu`.
+Both are **deselected by default**
 (`addopts = "-ra -m 'not integration and not gpu'"` in `pyproject.toml`), which is what
 preserves the zero-skip property on every machine. Run them explicitly:
 
 ```bash
 pytest -q                  # the offline suite
-pytest -q -m integration   # Docker: sandbox security + candidate evaluation
-pytest -q -m gpu           # CUDA: 4-bit load, LoRA, a real DPO training step
+pytest -q -m integration   # Docker: sandbox security + candidate/model evaluation
+pytest -q -m gpu           # CUDA: 4-bit load, LoRA, a real DPO training step, adapter isolation
 pytest -q -m ""            # everything
 ```
 
@@ -581,11 +582,73 @@ The model fixture is deliberately **function**-scoped despite a ~90s load: a ses
 3B model holds ~7 GiB for the whole run and starves the full-job tests on a 12 GiB card,
 which then fail the VRAM preflight rather than the thing they meant to test.
 
+### `model_evaluation/`
+
+The Stage 10 base-vs-DPO evaluation suite, split in three tiers.
+
+**Offline (the default suite — no GPU, no Docker, no model):**
+
+- **`test_metrics.py`** — the spec §111 estimator cases exactly (`n=10,c=10 → pass@k=1`
+  for every k; `n=10,c=0 → 0`), the `c >= n-k+1` boundary, `k>n` rejected, and the §44
+  guard that pass@k for `n=10,c=5,k=5` is **not** `c/n`. Every other rate function and the
+  §53 seven-bucket distribution.
+- **`test_statistics.py`** — bootstrap reproducibility under a fixed seed; a CI bracketing
+  a known (degenerate) mean; a constructed case where problem-level vs. candidate-level
+  resampling would visibly disagree; paired bootstrap against a known difference; McNemar
+  against a hand-computed exact binomial value.
+- **`test_comparison.py`** — the spec §112 mock benchmark (10 problems, base 4 solved, DPO
+  6 solved) reproducing `base=0.4, dpo=0.6, +0.2` through `compare()` + `solve_rate()`
+  together; the §113 regression case (8 vs 6 solved) asserting the loss/win counts
+  identify it as a regression; win/tie/loss and the §56 tie-excluded win rate; the §57
+  test-pass delta on a partial-improvement case where neither model fully solves the
+  problem; the §121 mismatched-set refusal and the §122 explicit paired subset;
+  infrastructure-error exclusion.
+- **`test_benchmark.py`** — manifest build and hash stability (order-independent); §10
+  drift detection (mutate a problem, expect `BenchmarkError`); §7 leakage detection in
+  both the train and validation directions; that `reference_solution` never reaches
+  `build_canonical_prompt`'s output.
+- **`test_generation.py`** — the seed schedule's exact arithmetic and §116's
+  `base.seed[i] == dpo.seed[i]`; §27/§114 prompt-hash equality; extraction failure
+  producing `generation_error` with the raw response retained and **no** candidate
+  constructed; resume-by-skip; the `on_record` callback. Driven through a `FakeRunner`,
+  no GPU.
+- **`test_cache.py`** — §94's key separation (identical prompt, different variant →
+  different digest) and §139's invalidation on revision/config/seed/prompt change; the
+  `JsonCacheStore` round trip.
+- **`test_runners.py`** — `verify_adapter_integrity`'s every failure mode (missing
+  directory, missing config, missing weights, base-model mismatch, malformed JSON)
+  against a synthetic adapter directory, plus a check against the real committed Stage 9
+  adapter. No torch import anywhere in this file.
+- **`test_models.py`** / **`test_config.py`** / **`test_run_repository.py`** — schema
+  round-trips, the §43 `pass@10`-needs-`n≥10` config rule, run-id minting and the status
+  lifecycle, generation/evaluation record append-and-load.
+- **`test_report.py`** — metrics aggregation from constructed records, the §143 success
+  rule's clauses (including the §71 catastrophic-regression flag and a CI that straddles
+  zero on the wrong side), executive-summary text for the improved/not-improved cases,
+  and §124-126 failure-type categorization.
+- **`tests/test_project.py`** — the ninth data path (`model_evaluations`) in all three
+  enumerations; the `benchmark` and `evaluate-model` CLI groups' parsing and error paths,
+  including that `--smoke-test` cannot request a `pass@k` the sample count can't support.
+
+**Docker-gated (`test_docker_integration.py`, `pytestmark = pytest.mark.integration`):**
+one correct and one wrong real candidate through `EvaluationDriver` → the unmodified
+Stage 6 `CandidateEvaluator` → a real sandbox container, proving §117 — Stage 10 uses the
+same sandbox config, evaluator and test suite as Stage 6 rather than a parallel path that
+could drift — plus that a `generation_error` record never reaches the sandbox at all.
+
+**GPU-gated (`test_gpu_integration.py`, `pytestmark = pytest.mark.gpu`):** the §118
+adapter isolation test — `BaseModelRunner`'s loaded module tree has no LoRA layers,
+`AdapterModelRunner`'s does — asserted by inspecting `named_modules()`, not by comparing
+generated text (§119 says identical output is legitimate for a lightly-trained adapter);
+`AdapterModelRunner` rejecting a corrupted adapter directory rather than falling back to
+base; a one-sample smoke generation for each variant against the real committed Stage 9
+adapter.
+
 ### `test_no_heavy_imports.py`
 
-A subprocess imports every `python_dpo` module — including all of `training/` — and
-asserts `torch`, `transformers`, `accelerate`, `trl`, `peft`, `bitsandbytes` and
-`datasets` are absent from `sys.modules`. Spec 03 §7's lazy-loading rule is one stray
+A subprocess imports every `python_dpo` module — including all of `training/` and
+`model_evaluation/` — and asserts `torch`, `transformers`, `accelerate`, `trl`, `peft`,
+`bitsandbytes` and `datasets` are absent from `sys.modules`. Spec 03 §7's lazy-loading rule is one stray
 top-level `import torch` away from being broken, so it is asserted rather than assumed.
 This test only means something when the `[model]` extra is actually installed — which is
 precisely when the rule could regress.

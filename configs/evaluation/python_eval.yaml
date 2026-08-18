@@ -1,0 +1,48 @@
+# Stage 10 evaluation configuration (spec section 140).
+#
+# A standalone file, not a section of the root config.yaml -- matching Stage 9's
+# configs/training/dpo_qlora.yaml. python_dpo.models.base.ModelConfig rejects a non-null
+# `quantization`, so the root config's `model:` section still cannot express 4-bit
+# inference; this file is where Stage 10's own seeded, quantized, k-sample generation is
+# configured. A second experiment (a different benchmark, more samples) is a second file,
+# not an edit to this one.
+
+benchmark:
+  name: python_eval_v1
+
+# Base and DPO MUST use identical generation settings (spec sections 20-26) -- this
+# section feeds both model variants from the same values, so that is structural rather
+# than something to remember.
+generation:
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 512
+  num_samples: 10
+  do_sample: true
+  repetition_penalty: 1.0
+  # Seeds are derived per (problem, sample) as base_seed + problem_index*1000 + sample_index
+  # (spec sections 25, 26), identically for both variants -- this is what makes the
+  # comparison paired rather than merely simultaneous.
+  base_seed: 1000
+
+# Identical quantization for Base and DPO (spec section 19), so the comparison isolates
+# the adapter rather than differing inference precision.
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: bfloat16
+
+statistics:
+  bootstrap_iterations: 1000
+  bootstrap_seed: 42
+  confidence_level: 0.95
+  pass_at_k: [1, 5, 10]
+
+# Configurable experimental gates (spec sections 86-88, 143), not a universal standard.
+# Consulting the benchmark to change these values would be exactly the test-set tuning
+# spec sections 134/135 forbid -- change them only to define a new experiment.
+success_criteria:
+  minimum_pass_at_1_improvement: 0.02
+  maximum_allowed_regression: 0.02

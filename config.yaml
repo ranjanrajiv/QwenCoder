@@ -9,6 +9,7 @@ paths:
   rankings: data/rankings
   preferences: data/preferences
   training: data/training
+  model_evaluations: data/model_evaluations
   reports: data/reports
 
 logging:

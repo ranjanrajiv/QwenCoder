@@ -1,0 +1,24 @@
+2026-08-18 21:23:56,428 | INFO | python_dpo.cli | Generating with the base model...
+2026-08-18 21:24:02,259 | INFO | python_dpo.model_evaluation.runners | Base runner loaded: Qwen/Qwen2.5-Coder-3B-Instruct
+2026-08-18 21:24:04,403 | INFO | python_dpo.model_evaluation.generation | p001 | base sample 0 | generated
+2026-08-18 21:24:06,444 | INFO | python_dpo.model_evaluation.generation | p002 | base sample 0 | generated
+2026-08-18 21:24:08,962 | INFO | python_dpo.model_evaluation.generation | p003 | base sample 0 | generated
+2026-08-18 21:24:08,992 | INFO | python_dpo.cli | Evaluating base candidates through the sandbox...
+2026-08-18 21:24:08,993 | INFO | python_dpo.evaluation | Evaluating p001_c001 against p001 (7 test case(s))
+2026-08-18 21:24:12,982 | INFO | python_dpo.evaluation | p001_c001 | passed | 7/7 tests passed
+2026-08-18 21:24:13,025 | INFO | python_dpo.evaluation | Evaluating p002_c001 against p002 (7 test case(s))
+2026-08-18 21:24:15,927 | INFO | python_dpo.evaluation | p002_c001 | failed | 3/7 tests passed
+2026-08-18 21:24:15,962 | INFO | python_dpo.evaluation | Evaluating p003_c001 against p003 (7 test case(s))
+2026-08-18 21:24:18,890 | INFO | python_dpo.evaluation | p003_c001 | passed | 7/7 tests passed
+2026-08-18 21:24:18,932 | INFO | python_dpo.cli | Generating with the dpo model...
+2026-08-18 21:24:22,702 | INFO | python_dpo.model_evaluation.runners | Adapter runner loaded: Qwen/Qwen2.5-Coder-3B-Instruct + /home/rajiv/QwenCoder/QwenCoder/data/training/runs/dpo_20260818_081231_a91d/adapter
+2026-08-18 21:24:24,048 | INFO | python_dpo.model_evaluation.generation | p001 | dpo sample 0 | generated
+2026-08-18 21:24:27,098 | INFO | python_dpo.model_evaluation.generation | p002 | dpo sample 0 | generated
+2026-08-18 21:24:31,025 | INFO | python_dpo.model_evaluation.generation | p003 | dpo sample 0 | generated
+2026-08-18 21:24:31,054 | INFO | python_dpo.cli | Evaluating dpo candidates through the sandbox...
+2026-08-18 21:24:31,055 | INFO | python_dpo.evaluation | Evaluating p001_c001 against p001 (7 test case(s))
+2026-08-18 21:24:34,229 | INFO | python_dpo.evaluation | p001_c001 | passed | 7/7 tests passed
+2026-08-18 21:24:34,273 | INFO | python_dpo.evaluation | Evaluating p002_c001 against p002 (7 test case(s))
+2026-08-18 21:24:37,008 | INFO | python_dpo.evaluation | p002_c001 | failed | 3/7 tests passed
+2026-08-18 21:24:37,043 | INFO | python_dpo.evaluation | Evaluating p003_c001 against p003 (7 test case(s))
+2026-08-18 21:24:39,879 | INFO | python_dpo.evaluation | p003_c001 | passed | 7/7 tests passed

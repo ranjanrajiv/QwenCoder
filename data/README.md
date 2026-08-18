@@ -7,9 +7,9 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Stage 9, `problems/`, `candidates/`, `evaluations/`, `rankings/`, `preferences/`
-and `training/` hold real artifacts; the other subdirectories are still empty apart from a
-`.gitkeep` placeholder that keeps them present in git. They
+As of Stage 10, `problems/`, `candidates/`, `evaluations/`, `rankings/`, `preferences/`,
+`training/` and `model_evaluations/` hold real artifacts; the other subdirectories are
+still empty apart from a `.gitkeep` placeholder that keeps them present in git. They
 correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
 `Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
 `ensure_exists()` method can recreate this exact structure from scratch.
@@ -238,6 +238,46 @@ python -m python_dpo train verify --training-run-id TRAIN_ID
 
 The committed run trained on 3 preference pairs — a single optimizer step. It is committed
 as evidence the stack works end to end, not as a meaningfully adapted model.
+
+### `model_evaluations/`
+
+**Populated (Stage 10).** Base-vs-DPO evaluation runs: the same held-out benchmark, the
+same prompts, the same generation config and seeds, run against base Qwen and base +
+adapter, compared with pass@k, bootstrap confidence intervals, and win/tie/loss.
+
+- `runs/<evaluation_run_id>/` — every `evaluate-model` invocation creates its own
+  directory, `eval_YYYYMMDD_HHMMSS_xxxx`:
+  - `manifest.json`, `config.yaml`, `benchmark_manifest.json` — models, adapter, seeds,
+    hardware, environment, and the benchmark as consumed (with its hash).
+  - `generations/{base,dpo}.jsonl` — every attempted generation, including extraction
+    failures (`status="generation_error"`, no candidate built).
+  - `evaluations/{base,dpo}.jsonl` — the curated per-candidate outcome; `_sandbox/` below
+    it holds the unmodified Stage 6 `EvaluationRepository` output (full stdout/stderr) for
+    failure-analysis forensics.
+  - `metrics/{summary,pass_at_k,bootstrap}.json` — every spec section 41-53 metric, per
+    variant, plus bootstrap confidence intervals.
+  - `reports/base_vs_dpo.{md,json}` — the full comparison report; `{improvements,
+    regressions,ties}.jsonl` — one representative example per problem, for qualitative
+    review; `failure_analysis.json` — deterministic failure categorization, no LLM.
+
+Reuses the Stage 5 sandbox and the Stage 6 executor unmodified — no separate execution
+path exists for Stage 10. The evaluation benchmark itself lives at
+[`benchmarks/`](../benchmarks/README.md), not under `data/`: it references problem ids and
+a content hash, never a copy of `problems.jsonl`.
+
+```bash
+python -m python_dpo benchmark build --name python_eval_v1 \
+    --exclude-preference-run-id PREF_ID
+python -m python_dpo evaluate-model --benchmark python_eval_v1 \
+    --training-run-id TRAIN_ID --smoke-test
+python -m python_dpo evaluate-model --benchmark python_eval_v1 \
+    --training-run-id TRAIN_ID --num-samples 10
+python -m python_dpo evaluate-model validate --evaluation-run-id EVAL_ID
+python -m python_dpo evaluate-model report   --evaluation-run-id EVAL_ID
+```
+
+The benchmark is never used to tune anything (spec sections 134, 135) — a `DPO_SUCCESS`
+verdict here is evidence, not an automatic promotion (spec sections 89, 142).
 
 ### `reports/`
 

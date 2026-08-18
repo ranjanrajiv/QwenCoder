@@ -1,0 +1,279 @@
+{
+  "benchmark_version": "python_eval_v1",
+  "comparison": {
+    "base_successfully_evaluated": 7,
+    "benchmark_problems": 7,
+    "dpo_losses": 0,
+    "dpo_successfully_evaluated": 7,
+    "dpo_win_rate": 0.0,
+    "dpo_wins": 0,
+    "paired_problems": 7,
+    "per_problem": [
+      {
+        "base_c": 10,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 1.0,
+        "dpo_c": 10,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p001",
+        "test_pass_delta": 0.0
+      },
+      {
+        "base_c": 0,
+        "base_n": 10,
+        "base_pass": false,
+        "base_test_pass_rate": 0.42857142857142855,
+        "dpo_c": 0,
+        "dpo_n": 10,
+        "dpo_pass": false,
+        "dpo_test_pass_rate": 0.42857142857142855,
+        "improvement": 0,
+        "problem_id": "p002",
+        "test_pass_delta": 0.0
+      },
+      {
+        "base_c": 10,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 1.0,
+        "dpo_c": 10,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p003",
+        "test_pass_delta": 0.0
+      },
+      {
+        "base_c": 5,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 0.9,
+        "dpo_c": 5,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 0.8875,
+        "improvement": 0,
+        "problem_id": "p004",
+        "test_pass_delta": -0.012500000000000067
+      },
+      {
+        "base_c": 9,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 0.9875,
+        "dpo_c": 10,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p005",
+        "test_pass_delta": 0.012499999999999956
+      },
+      {
+        "base_c": 10,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 1.0,
+        "dpo_c": 10,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p006",
+        "test_pass_delta": 0.0
+      },
+      {
+        "base_c": 10,
+        "base_n": 10,
+        "base_pass": true,
+        "base_test_pass_rate": 1.0,
+        "dpo_c": 10,
+        "dpo_n": 10,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p009",
+        "test_pass_delta": 0.0
+      }
+    ],
+    "ties": 7
+  },
+  "evaluation_run_id": "eval_20260818_155511_1633",
+  "executive_summary": "DPO improved pass@1 from 77.1% to 78.6%, an absolute improvement of 1.4 percentage points.\n",
+  "failure_analysis": {
+    "base": {
+      "assertion_failure": 16,
+      "generation_error": 0,
+      "import_error": 0,
+      "infrastructure_error": 0,
+      "runtime_error": 0,
+      "syntax_error": 0,
+      "timeout": 0
+    },
+    "dpo": {
+      "assertion_failure": 15,
+      "generation_error": 0,
+      "import_error": 0,
+      "infrastructure_error": 0,
+      "runtime_error": 0,
+      "syntax_error": 0,
+      "timeout": 0
+    }
+  },
+  "generated_at": "2026-08-18T16:15:03Z",
+  "mcnemar": {
+    "base_only": 0,
+    "dpo_only": 0,
+    "n_discordant": 0,
+    "p_value": 1.0
+  },
+  "metrics": {
+    "base_pass_at_1": 0.7714285714285715,
+    "base_pass_at_10": 0.8571428571428571,
+    "base_pass_at_5": 0.8565759637188208,
+    "base_syntax_success": 1.0,
+    "base_test_pass_rate": 0.9022959183673469,
+    "base_timeout_rate": 0.0,
+    "computed_at": "2026-08-18T16:15:03Z",
+    "dpo_pass_at_1": 0.7857142857142857,
+    "dpo_pass_at_10": 0.8571428571428571,
+    "dpo_pass_at_5": 0.8565759637188208,
+    "dpo_syntax_success": 1.0,
+    "dpo_test_pass_rate": 0.9022959183673469,
+    "dpo_timeout_rate": 0.0,
+    "evaluation_run_id": "eval_20260818_155511_1633",
+    "execution_success_rate": {
+      "base": 1.0,
+      "dpo": 1.0
+    },
+    "generation_failure_rate": {
+      "base": 0.0,
+      "dpo": 0.0
+    },
+    "pass_at_k": {
+      "base": {
+        "1": 0.7714285714285715,
+        "10": 0.8571428571428571,
+        "5": 0.8565759637188208
+      },
+      "dpo": {
+        "1": 0.7857142857142857,
+        "10": 0.8571428571428571,
+        "5": 0.8565759637188208
+      }
+    },
+    "solve_rate": {
+      "base": 0.8571428571428571,
+      "dpo": 0.8571428571428571
+    },
+    "syntax_success_rate": {
+      "base": 1.0,
+      "dpo": 1.0
+    },
+    "test_failure_distribution": {
+      "base": {
+        "0%": 0,
+        "1-20%": 0,
+        "100%": 54,
+        "20-40%": 0,
+        "40-60%": 10,
+        "60-80%": 3,
+        "80-99%": 3
+      },
+      "dpo": {
+        "0%": 0,
+        "1-20%": 0,
+        "100%": 55,
+        "20-40%": 0,
+        "40-60%": 10,
+        "60-80%": 4,
+        "80-99%": 1
+      }
+    },
+    "test_pass_rate": {
+      "base": 0.9022959183673469,
+      "dpo": 0.9022959183673469
+    },
+    "timeout_rate": {
+      "base": 0.0,
+      "dpo": 0.0
+    }
+  },
+  "paired_pass_at_1_ci": {
+    "confidence": 0.95,
+    "iterations": 1000,
+    "lower": 0.0,
+    "point": 0.014285714285714235,
+    "seed": 42,
+    "upper": 0.042857142857142816
+  },
+  "pass_at_k_confidence_intervals": {
+    "base": {
+      "1": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.4857142857142857,
+        "point": 0.7714285714285715,
+        "seed": 42,
+        "upper": 0.9857142857142858
+      },
+      "10": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.5714285714285714,
+        "point": 0.8571428571428571,
+        "seed": 42,
+        "upper": 1.0
+      },
+      "5": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.5708616780045351,
+        "point": 0.8565759637188208,
+        "seed": 42,
+        "upper": 1.0
+      }
+    },
+    "dpo": {
+      "1": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.5,
+        "point": 0.7857142857142857,
+        "seed": 42,
+        "upper": 1.0
+      },
+      "10": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.5714285714285714,
+        "point": 0.8571428571428571,
+        "seed": 42,
+        "upper": 1.0
+      },
+      "5": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.5708616780045351,
+        "point": 0.8565759637188208,
+        "seed": 42,
+        "upper": 1.0
+      }
+    }
+  },
+  "success_criteria": {
+    "DPO_SUCCESS": false,
+    "catastrophic_regression_detected": false,
+    "overfitting_check": "not_applicable: Stage 10 does not evaluate training-set performance (spec section 69)",
+    "paired_ci_supports_improvement": true,
+    "pass_at_1_improves": false,
+    "pass_at_5_not_regressed": true,
+    "syntax_success_not_regressed": true,
+    "timeout_rate_not_increased": true
+  }
+}
