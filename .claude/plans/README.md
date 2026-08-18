@@ -148,4 +148,34 @@ being the pair-bearing problems with a floor rule keeping train non-empty). The 
 consequential finding is scale: 78 of the 100 comparisons are ties, strict yields 12 pairs
 across just 2 problems, and those 12 collapse to **3 distinct training records**. The plan
 carries exact expected acceptance numbers per policy and states plainly that the pipeline —
-not the dataset — is what this stage validates. **Approved but not yet implemented.**
+not the dataset — is what this stage validates. This plan has been fully executed — see
+[`08_PREFERENCE_PAIR_GENERATION.md`](../../08_PREFERENCE_PAIR_GENERATION.md) for the
+implementation report.
+
+### `09_dpo_qlora_training_plan.md`
+
+The implementation plan for Stage 9 — Qwen Coder DPO/QLoRA training — derived from
+[`.claude/specs/09_dpo_qlora_training.md`](../specs/09_dpo_qlora_training.md) and confirmed
+with the user before implementation started. It fine-tunes a LoRA adapter over a frozen,
+4-bit NF4-quantized Qwen Coder base using TRL's `DPOTrainer`: a new
+`src/python_dpo/training/` package covering hardware and package-version capture, dataset
+validation and hashing, token-length and truncation analysis, quantization and LoRA
+application with parameter-count safety checks, metrics persistence, run manifests, and the
+mandatory adapter-reload verification — while executing no candidate code and making no
+claim about Python ability, which belongs to Step 10.
+
+Its blocking finding is measured from the committed Stage 8 output: **every preference
+dataset has an empty `validation.jsonl`** (strict train=1/val=0/test=2, margin
+train=2/val=0/test=2), because the splitter floors validation at `floor(n × 0.1)` and only
+2–4 problems ever produce pairs — so §24.9's "train and validation must be non-empty" would
+fail preflight on every dataset that exists. The four approved decisions follow (mint an
+`all_better` dataset at 0.5/0.25/0.25 ratios, the only reachable non-empty split at
+train=3/val=2/test=2, *and* tolerate an empty validation behind `--allow-small-dataset`;
+run the spec's full six-step verification including a real training run; commit provenance
+and the ~15 MB adapter while gitignoring checkpoints; and apply the Qwen chat template
+during training because Stage 3 generation demonstrably did). Hardware and dependencies
+were verified up front: an RTX 3060 with ~11.7 GiB free, the base model already cached, and
+trl 1.10 / peft 0.20 / bitsandbytes 0.50 / datasets 5.0 resolving without downgrading torch
+or transformers. The plan states plainly that three training records is under one
+gradient-accumulation cycle — this stage validates the QLoRA/DPO stack, not the model.
+**Approved but not yet implemented.**
