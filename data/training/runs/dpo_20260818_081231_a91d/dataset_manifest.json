@@ -1,0 +1,88 @@
+{
+  "candidate_run_id": "20260817_055411",
+  "created_at": "2026-08-18T08:12:31Z",
+  "dataset_manifest_version": "1.0",
+  "dataset_schema_version": "dpo_preference_v1",
+  "evaluation_run_id": "eval_20260817_115154_dcd4",
+  "preference_run_id": "pref_20260818_074347_5eff",
+  "preference_version": "v1",
+  "ranking_run_id": "rank_20260817_161726_a84d",
+  "selection_policy": "all_better",
+  "selection_policy_version": "all_better_v1",
+  "split_counts": {
+    "test": 2,
+    "train": 3,
+    "validation": 2
+  },
+  "split_hashes": {
+    "test": "3c31f206277b7842fe73e8c29ae90f59b5caa8954dea43cad7c1cb6b412876e4",
+    "train": "2bec77c843269e31dfd29587c17cbcb9dc5143740946534410a29ad3ec58913e",
+    "validation": "c51503ac35623d76772aa0df31e71aed42135cb946eff8f705510688d82ce28d"
+  },
+  "split_problem_ids": {
+    "test": [
+      "p004"
+    ],
+    "train": [
+      "p007",
+      "p008"
+    ],
+    "validation": [
+      "p010"
+    ]
+  },
+  "statistics": {
+    "balance": {
+      "chosen_pass_rate_histogram": {
+        "0.7": 4,
+        "0.9": 6,
+        "1.0": 12
+      },
+      "mean_chosen_score": 0.905303,
+      "mean_rejected_score": 0.681818,
+      "mean_score_margin": 0.223485,
+      "medium_pair_percentage": 45.45,
+      "pairs": 22,
+      "rejected_pass_rate_histogram": {
+        "0.2": 4,
+        "0.8": 12,
+        "0.9": 6
+      },
+      "score_margin_histogram": {
+        "0.1": 12,
+        "0.2": 6,
+        "0.5": 4
+      },
+      "strong_pair_percentage": 54.55
+    },
+    "splits": {
+      "test": {
+        "count": 2,
+        "max_chosen_chars": 594,
+        "max_prompt_chars": 798,
+        "max_rejected_chars": 497,
+        "mean_chosen_chars": 594.0,
+        "mean_prompt_chars": 798.0,
+        "mean_rejected_chars": 452.5
+      },
+      "train": {
+        "count": 3,
+        "max_chosen_chars": 473,
+        "max_prompt_chars": 960,
+        "max_rejected_chars": 419,
+        "mean_chosen_chars": 363.33,
+        "mean_prompt_chars": 956.67,
+        "mean_rejected_chars": 401.0
+      },
+      "validation": {
+        "count": 2,
+        "max_chosen_chars": 594,
+        "max_prompt_chars": 1100,
+        "max_rejected_chars": 711,
+        "mean_chosen_chars": 592.5,
+        "mean_prompt_chars": 1100.0,
+        "mean_rejected_chars": 711.0
+      }
+    }
+  }
+}

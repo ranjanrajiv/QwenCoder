@@ -1,0 +1,53 @@
+{
+  "chosen_pass_rate_distribution": {
+    "0.7": 4,
+    "0.9": 6,
+    "1.0": 12
+  },
+  "computed_at": "2026-08-18T07:43:51Z",
+  "medium_pairs": 10,
+  "preference_run_id": "pref_20260818_074347_5eff",
+  "problems_with_pairs": [
+    "p004",
+    "p007",
+    "p008",
+    "p010"
+  ],
+  "problems_without_pairs": {
+    "p001": "all_candidates_correct",
+    "p002": "all_candidates_tied",
+    "p003": "all_candidates_correct",
+    "p005": "all_candidates_correct",
+    "p006": "all_candidates_correct",
+    "p009": "all_candidates_correct"
+  },
+  "rejected_pass_rate_distribution": {
+    "0.2": 4,
+    "0.8": 12,
+    "0.9": 6
+  },
+  "report_version": "1.0",
+  "score_margin_distribution": {
+    "0.1": 12,
+    "0.2": 6,
+    "0.5": 4
+  },
+  "strategy_distribution": {
+    "chosen": {
+      "alternative": 4,
+      "edge_case_focused": 5,
+      "normal": 6,
+      "optimized": 1,
+      "straightforward": 6
+    },
+    "rejected": {
+      "alternative": 5,
+      "edge_case_focused": 6,
+      "normal": 2,
+      "optimized": 7,
+      "straightforward": 2
+    }
+  },
+  "strong_pairs": 12,
+  "total_pairs": 22
+}

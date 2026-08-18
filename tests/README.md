@@ -4,18 +4,21 @@ The project's test suite. The default run (`pytest -q`) is offline and CPU-only 
 network access, no GPU, no Docker, no Qwen model — and nothing is skipped.
 
 Docker tests — the sandbox security suite and the candidate test executor's integration
-suite — are marked `@pytest.mark.integration` and **deselected by default**
-(`addopts = "-ra -m 'not integration'"` in `pyproject.toml`), which is what preserves the
-zero-skip property on every machine. Run them explicitly:
+suite — are marked `@pytest.mark.integration`, and the Stage 9 training suite is marked
+`@pytest.mark.gpu`. Both are **deselected by default**
+(`addopts = "-ra -m 'not integration and not gpu'"` in `pyproject.toml`), which is what
+preserves the zero-skip property on every machine. Run them explicitly:
 
 ```bash
 pytest -q                  # the offline suite
 pytest -q -m integration   # Docker: sandbox security + candidate evaluation
+pytest -q -m gpu           # CUDA: 4-bit load, LoRA, a real DPO training step
 pytest -q -m ""            # everything
 ```
 
-They deliberately **fail** rather than skip when Docker is unreachable: they were asked for
-explicitly, so silently passing an unrun security suite would be the worst outcome.
+They deliberately **fail** rather than skip when Docker or a GPU is unreachable: they were
+asked for explicitly, so silently passing an unrun security or QLoRA suite would be the
+worst outcome.
 
 ## Files
 
@@ -32,7 +35,7 @@ One test per requirement in spec §14, plus a couple of guardrails:
 - `test_version_is_a_nonempty_dotted_string` — `__version__` exists, is a non-empty
   `str`, and parses as a dotted numeric version like `0.1.0` (§14.2).
 - `test_config_loads_real_config_yaml` — `Config.load()` against the real
-  `config.yaml` returns the correct project name and six absolute paths, each rooted
+  `config.yaml` returns the correct project name and eight absolute paths, each rooted
   under the project directory (§14.3, happy path).
 - `test_config_load_raises_on_malformed_yaml` — an incomplete YAML file (missing the
   `paths` section) raises `ConfigError` with a message mentioning what's missing
@@ -40,8 +43,8 @@ One test per requirement in spec §14, plus a couple of guardrails:
 - `test_config_load_raises_on_missing_file` — a nonexistent config path raises
   `ConfigError` with a "not found" message.
 - `test_paths_ensure_exists_creates_all_directories` — `Paths.ensure_exists()` creates
-  all six directories under a `tmp_path` (§14.4, isolated).
-- `test_real_data_directories_exist` — the seven real `data/*` directories exist in the
+  all eight directories under a `tmp_path` (§14.4, isolated).
+- `test_real_data_directories_exist` — the eight real `data/*` directories exist in the
   repo (§14.4, real repo state).
 - `test_cli_help_exits_zero` / `test_cli_version_exits_zero_and_prints_version` — run
   `python -m python_dpo --help` / `--version` as a subprocess (with `PYTHONPATH=src`
@@ -90,6 +93,17 @@ One test per requirement in spec §14, plus a couple of guardrails:
   `preferences generate`/`list`/`show`/`stats`/`validate` flag parsing, including every
   policy/margin/split/resume/force flag, and that an unknown ranking or preference run id
   is rejected before any building work begins.
+- `test_train_is_not_a_placeholder`, `test_train_subcommands_parse`,
+  `test_bare_train_prints_help_and_returns_nonzero`,
+  `test_train_verify_requires_a_training_run_id`,
+  `test_train_verify_reports_an_unknown_training_run_id`,
+  `test_train_show_reports_an_unknown_training_run_id`,
+  `test_train_dpo_reports_an_unknown_preference_run_id` (Stage 9) — the `train` group's
+  flag parsing including every hyperparameter override, and that an unknown training or
+  preference run id is rejected before a model is ever loaded.
+- `test_preferences_generate_accepts_split_ratios`, `test_bad_split_ratios_are_rejected`
+  — the Stage 8 `--split-ratios` flag added in Stage 9, including that bad ratios are
+  rejected before any preference run is created.
 
 ### `test_problems.py`
 
@@ -524,10 +538,54 @@ the default offline suite.
   produce identical pairs and byte-identical training files, differing only in run id and
   timestamps).
 
+### `training/`
+
+The Stage 9 DPO/QLoRA suite, split in two tiers because most of the stage cannot run
+without a GPU.
+
+**Offline (the default suite — no GPU, no model, no heavy imports):**
+
+- **`test_config.py`** — the experiment schema: defaults, unknown-key rejection at every
+  nesting level, `distributed.enabled: true` rejected outright, `max_prompt_length` forced
+  below `max_length`, and that an override cannot bypass a rule the YAML must obey. Also
+  asserts the committed `configs/training/dpo_qlora.yaml` always loads.
+- **`test_hardware.py`** — every branch through an **injected fake probe**: no CUDA, a
+  missing backend reported rather than raised, insufficient *free* VRAM (the desktop-session
+  case), the configurable floor, and the bf16→fp16 fallback in all four directions.
+- **`test_dataset.py`** — spec section 24's checks one at a time; the section 101 security
+  rule that a non-string `chosen`/`rejected` is rejected; the section 102 leakage abort;
+  the empty-validation escape hatch and that an empty *train* split is always fatal; and
+  that `TrainingDataset` exposes no `test` attribute a caller could hand the trainer.
+- **`test_lengths.py`** — percentile arithmetic, that an example counts as truncated if
+  *either* side overflows, the threshold raising, and the explicit override.
+- **`test_loader.py`** — the two safety nets against fake models: `validate_target_modules`
+  raising when **none** match, and `count_parameters` raising on both
+  `trainable == total` (a full fine-tune) and `trainable == 0` (LoRA never attached).
+  Plus the optimizer fallback when bitsandbytes is absent.
+- **`test_run_repository.py`** — id minting, the status lifecycle, the section 82 failure
+  record, and resume: a dataset change refusable-but-overridable, a critical configuration
+  change never overridable, and target-module reordering *not* counting as a change.
+- **`test_models.py`** / **`test_versions.py`** / **`test_statistics.py`** — schema
+  round-trips (including the manifest's own leakage check), version capture with a missing
+  package recorded as `None`, the formatters, and that the metrics recorder passes unknown
+  reward metrics through while dropping non-numeric values.
+
+**GPU-gated (`test_gpu_integration.py`, `pytestmark = pytest.mark.gpu`):** a real 4-bit
+load, target-module resolution against a real Qwen2 module tree, the exact 7,372,800
+trainable-parameter count, and the whole of spec section 67's acceptance list in one
+end-to-end smoke test — forward, backward, checkpoint, adapter save, adapter reload. Plus
+a test that **the LoRA B matrices are no longer zero** after training, since a step that
+does not move the weights has achieved nothing.
+
+The model fixture is deliberately **function**-scoped despite a ~90s load: a session-scoped
+3B model holds ~7 GiB for the whole run and starves the full-job tests on a 12 GiB card,
+which then fail the VRAM preflight rather than the thing they meant to test.
+
 ### `test_no_heavy_imports.py`
 
-A subprocess imports every `python_dpo` module and asserts `torch`, `transformers`, and
-`accelerate` are absent from `sys.modules`. Spec 03 §7's lazy-loading rule is one stray
+A subprocess imports every `python_dpo` module — including all of `training/` — and
+asserts `torch`, `transformers`, `accelerate`, `trl`, `peft`, `bitsandbytes` and
+`datasets` are absent from `sys.modules`. Spec 03 §7's lazy-loading rule is one stray
 top-level `import torch` away from being broken, so it is asserted rather than assumed.
 This test only means something when the `[model]` extra is actually installed — which is
 precisely when the rule could regress.

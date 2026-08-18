@@ -37,6 +37,7 @@ def test_config_loads_real_config_yaml():
         config.paths.evaluations,
         config.paths.rankings,
         config.paths.preferences,
+        config.paths.training,
         config.paths.reports,
     ):
         assert path.is_absolute()
@@ -65,6 +66,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         evaluations=tmp_path / "evaluations",
         rankings=tmp_path / "rankings",
         preferences=tmp_path / "preferences",
+        training=tmp_path / "training",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()
@@ -75,6 +77,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         paths.evaluations,
         paths.rankings,
         paths.preferences,
+        paths.training,
         paths.reports,
     ):
         assert path.is_dir()
@@ -88,6 +91,7 @@ def test_real_data_directories_exist():
         "evaluations",
         "rankings",
         "preferences",
+        "training",
         "reports",
     ):
         assert (PROJECT_ROOT / "data" / name).is_dir()
@@ -680,3 +684,114 @@ def test_preferences_validate_reports_an_unknown_preference_run_id():
     result = _run_module("preferences", "validate", "--preference-run-id", "pref_does_not_exist")
     assert result.returncode == 1
     assert "pref_does_not_exist" in result.stderr
+
+
+# ------------------------------------------------------------------------------- train
+
+
+def test_train_is_not_a_placeholder():
+    assert "train" not in _PLACEHOLDER_STAGES
+
+
+def test_train_subcommands_parse():
+    parser = build_parser()
+
+    args = parser.parse_args(["train", "hardware-check"])
+    assert args.command == "train" and args.train_command == "hardware-check"
+    assert callable(args.func)
+
+    args = parser.parse_args(["train", "dpo", "--preference-run-id", "pref_x"])
+    assert args.preference_run_id == "pref_x"
+    assert args.config is None
+    assert args.dry_run is False and args.smoke_test is False
+    assert args.allow_small_dataset is False
+    assert args.resume_from_checkpoint is None and args.force_resume is False
+
+    args = parser.parse_args(
+        [
+            "train", "dpo", "--config", "configs/training/dpo_qlora.yaml",
+            "--preference-run-id", "pref_x", "--dry-run", "--smoke-test",
+            "--allow-small-dataset", "--override-truncation",
+            "--resume-from-checkpoint", "dpo_x", "--force-resume",
+            "--experiment-name", "exp", "--learning-rate", "2e-5", "--beta", "0.5",
+            "--epochs", "2", "--max-steps", "10", "--seed", "7", "--lora-r", "8",
+        ]
+    )
+    assert args.dry_run is True and args.smoke_test is True
+    assert args.allow_small_dataset is True and args.override_truncation is True
+    assert args.resume_from_checkpoint == "dpo_x" and args.force_resume is True
+    assert args.experiment_name == "exp"
+    assert args.learning_rate == 2e-5 and args.beta == 0.5
+    assert args.epochs == 2 and args.max_steps == 10
+    assert args.seed == 7 and args.lora_r == 8
+
+    args = parser.parse_args(["train", "verify", "--training-run-id", "dpo_x"])
+    assert args.training_run_id == "dpo_x"
+
+    args = parser.parse_args(
+        ["train", "inference", "--training-run-id", "dpo_x", "--prompt", "hi"]
+    )
+    assert args.prompt == "hi" and args.max_new_tokens == 256
+
+    assert callable(parser.parse_args(["train", "list"]).func)
+    assert parser.parse_args(["train", "show", "--training-run-id", "dpo_x"]).training_run_id
+
+
+def test_bare_train_prints_help_and_returns_nonzero():
+    result = _run_module("train")
+    assert result.returncode == 1
+    assert "usage" in result.stdout.lower()
+
+
+def test_train_verify_requires_a_training_run_id():
+    result = _run_module("train", "verify")
+    assert result.returncode == 2
+    assert "--training-run-id" in result.stderr
+
+
+def test_train_verify_reports_an_unknown_training_run_id():
+    result = _run_module("train", "verify", "--training-run-id", "dpo_does_not_exist")
+    assert result.returncode == 1
+    assert "dpo_does_not_exist" in result.stderr
+
+
+def test_train_show_reports_an_unknown_training_run_id():
+    result = _run_module("train", "show", "--training-run-id", "dpo_does_not_exist")
+    assert result.returncode == 1
+    assert "dpo_does_not_exist" in result.stderr
+
+
+def test_train_dpo_reports_an_unknown_preference_run_id():
+    result = _run_module(
+        "train", "dpo", "--preference-run-id", "pref_does_not_exist", "--dry-run"
+    )
+    assert result.returncode == 1
+    assert "pref_does_not_exist" in result.stderr
+
+
+def test_preferences_generate_accepts_split_ratios():
+    args = build_parser().parse_args(
+        ["preferences", "generate", "--ranking-run-id", "rank_x",
+         "--split-ratios", "0.5,0.25,0.25"]
+    )
+    assert args.split_ratios == "0.5,0.25,0.25"
+
+
+def test_split_ratios_default_to_none_so_config_supplies_them():
+    args = build_parser().parse_args(
+        ["preferences", "generate", "--ranking-run-id", "rank_x"]
+    )
+    assert args.split_ratios is None
+
+
+def test_bad_split_ratios_are_rejected():
+    # A real ranking run id, so the invocation gets past the upstream-run lookup and
+    # actually reaches the ratio validation. It still writes nothing: the ratios are
+    # parsed before any preference run is created.
+    result = _run_module(
+        "preferences", "generate",
+        "--ranking-run-id", "rank_20260817_161726_a84d",
+        "--split-ratios", "0.5,0.5,0.5",
+    )
+    assert result.returncode == 1
+    assert "sum to 1.0" in result.stderr

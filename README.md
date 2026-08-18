@@ -3,15 +3,16 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 8 — DPO Preference Pair Generation.** The foundation (packaging,
+**Current status: Stage 9 — DPO/QLoRA Training.** The foundation (packaging,
 CLI, logging, typed configuration), the ground-truth layer (10 curated Python problems
 with trusted reference solutions and executable tests), candidate generation with a Qwen
 Coder model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic
 persistence, resume, retry, integrity validation), an isolated Docker execution sandbox, a
-pytest-based candidate test executor, deterministic candidate ranking, and DPO preference
-pair generation are in place. No training code has been implemented yet — and **generated
-code, and the tests generated for it, are executed only inside the sandbox, never on the
-host**; ranking and preference-pair generation never execute code or call an LLM at all.
+pytest-based candidate test executor, deterministic candidate ranking, DPO preference
+pair generation, and QLoRA/DPO training are in place. No trained-model evaluation exists
+yet — and **generated code, and the tests generated for it, are executed only inside the
+sandbox, never on the host**; ranking, preference-pair generation and training never
+execute candidate code at all.
 
 ## Planned pipeline
 
@@ -35,13 +36,13 @@ DPO Dataset
 QLoRA + DPO Training
 ```
 
-The first eight stages are implemented. Everything from QLoRA/DPO training onward is
-still a placeholder that documents the intended shape of the pipeline.
+The first nine stages are implemented. Everything from trained-model evaluation onward
+is still a placeholder that documents the intended shape of the pipeline.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Eight have been specified and implemented so
+states its position, e.g. "Stage 3 of 12". Nine have been specified and implemented so
 far:
 
 | Stage | Delivers | Status |
@@ -54,9 +55,10 @@ far:
 | 6 — Candidate Test Executor | Deterministic pytest-suite generation, sandboxed evaluation, per-test evidence | Done |
 | 7 — Candidate Ranking | Correctness classification, scoring, deterministic per-problem ranking, pairwise comparison | Done |
 | 8 — Preference Pair Generation | `{prompt, chosen, rejected}` DPO pairs, selection policies, dedup, problem-level splits | Done |
-| 9–12 — DPO/QLoRA training | Training loop, evaluation of the fine-tuned model | Not started |
+| 9 — DPO/QLoRA Training | 4-bit NF4 QLoRA + TRL DPOTrainer, preflight, metrics, adapter reload | Done |
+| 10–12 — Evaluation and beyond | Programming benchmark, trained-vs-base comparison | Not started |
 
-Stages 9–12 aren't specified yet, so the table above intentionally doesn't assign them
+Stages 10–12 aren't specified yet, so the table above intentionally doesn't assign them
 individual names — the pipeline diagram lists the phases in order, but the exact stage
 boundaries will be set when each spec is written. Nothing in that range is implemented;
 see `CLAUDE.md`'s Scope Control rule.
@@ -78,7 +80,8 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── sandbox/           # Stage 5: isolated Docker execution of untrusted code
 │   ├── evaluation/        # Stage 6: pytest-suite generation, sandboxed evaluation
 │   ├── ranking/           # Stage 7: correctness classification, scoring, ranking
-│   └── preferences/       # Stage 8: {prompt, chosen, rejected} DPO pair generation
+│   ├── preferences/       # Stage 8: {prompt, chosen, rejected} DPO pair generation
+│   └── training/          # Stage 9: 4-bit QLoRA + DPO training of a LoRA adapter
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
@@ -86,11 +89,13 @@ see `CLAUDE.md`'s Scope Control rule.
 │   ├── candidates/runs/            # Stage 4: one directory per generation run
 │   ├── evaluations/runs/           # Stage 6: one directory per evaluation run
 │   ├── rankings/runs/              # Stage 7: one directory per ranking run
-│   └── preferences/runs/           # Stage 8: one directory per preference run
+│   ├── preferences/runs/           # Stage 8: one directory per preference run
+│   └── training/runs/              # Stage 9: one directory per training run
 ├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
 ├── scripts/               # operational scripts (real-model smoke test)
+├── configs/training/      # Stage 9: DPO/QLoRA experiment configurations
 ├── config.yaml            # project name, data paths, logging, model, generation, sandbox, evaluation
 └── CLAUDE.md              # engineering rules for this project
 ```
@@ -112,6 +117,7 @@ model:
 
 ```bash
 pip install -e ".[model]"     # torch, transformers, accelerate (~2.5 GB of wheels)
+pip install -e ".[training]"  # adds trl, peft, bitsandbytes, datasets (Stage 9)
 ```
 
 If a gated or private model is configured, export `HF_TOKEN` in your shell. It is read
@@ -121,12 +127,13 @@ logs, or this README.
 ## Testing
 
 ```bash
-pytest -q                  # offline, Docker-free, zero skips
+pytest -q                  # offline, Docker-free, GPU-free, zero skips
 pytest -q -m integration   # Docker: sandbox security + candidate evaluation (needs a daemon + images)
+pytest -q -m gpu           # CUDA: 4-bit load, LoRA, a real training step (needs a GPU + the training extra)
 ```
 
-Integration tests are deselected by default so the standard run needs no Docker and reports
-no skips. They are not optional extras — they are where the sandbox's security guarantees,
+Integration and GPU tests are deselected by default so the standard run needs neither
+Docker nor a GPU and reports no skips. They are not optional extras — they are where the sandbox's security guarantees,
 and the candidate test executor's classification behavior, are demonstrated against a real
 daemon.
 
@@ -181,6 +188,13 @@ python -m python_dpo preferences list                    # all preference runs, 
 python -m python_dpo preferences show --preference-run-id PREF_ID --preference-id PREF
 python -m python_dpo preferences stats --preference-run-id PREF_ID
 python -m python_dpo preferences validate --preference-run-id PREF_ID
+
+python -m python_dpo train hardware-check                # GPU, CUDA, BF16, 4-bit capability
+python -m python_dpo train dpo --config configs/training/dpo_qlora.yaml \
+    --preference-run-id PREF_ID [--dry-run | --smoke-test]
+python -m python_dpo train verify --training-run-id TRAIN_ID     # mandatory adapter reload
+python -m python_dpo train inference --training-run-id TRAIN_ID --prompt "..."
+python -m python_dpo train list / show --training-run-id TRAIN_ID
 ```
 
 The remaining subcommand exists as a **placeholder only**. It logs a "not implemented
@@ -196,7 +210,9 @@ Stage 5 `sandbox` section (image, resource limits, isolation toggles), and the S
 `evaluation` section (evaluator image, timeout, startup grace, auto-pull — every
 isolation setting itself is inherited from `sandbox` at run time, never re-specified).
 Stage 7 ranking has no configuration section of its own — v1 has no tunable scoring
-parameters. Stage 8 preference generation does: a `preferences` section (default
+parameters. Stage 9 keeps its hyperparameters in a standalone `configs/training/dpo_qlora.yaml`
+rather than here, so a second experiment is a second file; only `paths.training` is added
+to `config.yaml`. Stage 8 preference generation does have a section here: a `preferences` section (default
 selection policy, minimum score margin, max pairs per problem, split ratios/seed) —
 every field is overridable per-invocation by the matching `preferences generate` flag.
 See `src/python_dpo/config.py` for how it's loaded and validated.
@@ -923,3 +939,123 @@ python -m python_dpo preferences generate --ranking-run-id RANK_ID --resume PREF
 ```bash
 pytest -q   # offline, zero skips — preference generation is pure computation, no Docker at all
 ```
+
+## Stage 9 — DPO/QLoRA Training
+
+### Purpose
+
+Stage 8 produced `{prompt, chosen, rejected}` records backed by execution evidence. Stage 9
+is the first stage that changes a model: it fine-tunes a **LoRA adapter over a frozen,
+4-bit NF4-quantized** Qwen Coder base using TRL's `DPOTrainer`.
+
+Three rules govern it. **The base model stays frozen** — only LoRA parameters train, and
+the parameter check *refuses to proceed* if every parameter is trainable, because that
+would be a full fine-tune this stage must never perform by accident. **No candidate code
+is executed** — `chosen`/`rejected` are validated to be strings and are only tokenized;
+execution belongs to the Stage 5 sandbox alone. **No performance claim** — a falling DPO
+loss is not evidence of better Python, and this stage produces `base model + adapter` for
+Step 10 to evaluate.
+
+**At a glance (the real run on this machine):** RTX 3060, 11.2 GiB free · Qwen2.5-Coder-3B
+in 4-bit NF4 · LoRA r=16 over `q,k,v,o` × 36 layers = **7,372,800 trainable parameters,
+0.43% of the 1.7B quantized base** · peak 4.66 GiB VRAM · adapter 14.1 MiB · reload
+verified.
+
+That last number is the point: 3 training records over 2 problems is a **single optimizer
+step**. Stage 9 demonstrates that the QLoRA/DPO stack loads, quantizes, attaches an
+adapter, takes a real gradient step, saves and reloads — and nothing whatsoever about
+whether the model writes better Python.
+
+### The canonical prompt, and why training applies a chat template
+
+Stage 3 generated every candidate through the tokenizer's chat template. Training applies
+the **same** template, converting Stage 8's model-agnostic string prompt into
+conversational form so TRL renders it identically. Training on the bare string would train
+on a format the candidates were never produced under.
+
+### Preflight
+
+Everything below runs *before* a single gradient is computed, and any failure stops the
+run before an artifact is written:
+
+| Check | Fails when |
+|---|---|
+| Hardware | No CUDA, or free VRAM below the floor (free, not total — a desktop session holds ~0.5 GiB) |
+| Dataset | Missing/malformed split, empty field, `chosen == rejected`, non-string response, empty train |
+| Leakage | A problem id appears in more than one split |
+| Truncation | More than 5% of examples exceed `max_length` |
+| Target modules | *None* of the configured LoRA targets exist on the model |
+| Parameters | `trainable == total` (full fine-tune) or `trainable == 0` (LoRA never attached) |
+
+```bash
+python -m python_dpo train hardware-check
+```
+```
+Hardware check passed.
+  CUDA: CUDA 13.0 via torch 2.13.0+cu130, 1 device(s)
+  GPU: NVIDIA GeForce RTX 3060 (compute capability 8.6)
+  VRAM: 11.2 GiB free of 11.6 GiB total
+  BF16: supported
+  4-bit quantization: bitsandbytes is available
+```
+
+### Dry run, smoke test, real run
+
+All three are the **same code path stopped at different points**, which is the whole value
+of the dry run: it exercises the code that will actually train, not a parallel one.
+
+```bash
+python -m python_dpo train dpo --config configs/training/dpo_qlora.yaml \
+    --preference-run-id PREF_ID --dry-run      # preflight only, no training
+python -m python_dpo train dpo ... --smoke-test # a handful of examples, 1-2 steps
+python -m python_dpo train dpo ...              # the real run
+python -m python_dpo train verify --training-run-id TRAIN_ID
+```
+```
+Trainable:     7,372,800 of 1,706,045,440 (0.4322%)
+Final train loss: 0.693147
+Final eval loss:  0.676852
+Peak GPU memory: 4.66 GiB
+Adapter reload: OK
+```
+
+An adapter that does not reload is **not** a training artifact, whatever the loss curve
+said — `train verify` reloads the saved adapter from disk against a freshly loaded base
+model and generates with it, and the run is not successful until it passes.
+
+### Persisted evidence
+
+```
+data/training/runs/dpo_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json          # package versions, seeds, hardware, upstream run ids, status
+├── config.yaml            # the resolved experiment config actually used
+├── dataset_manifest.json  # preference provenance + all three split hashes
+├── hardware.json          # GPU/CUDA/BF16/4-bit capability at run start
+├── metrics/metrics.jsonl  # per-step loss, DPO reward metrics, GPU memory
+├── logs/training.log
+├── adapter/               # the trained LoRA adapter    [tracked, 14.1 MiB]
+├── checkpoints/           # periodic checkpoints        [gitignored]
+└── final_report.json
+```
+
+All three split hashes are recorded **including test** — not because test is used (it is
+never handed to the trainer) but because reproducing a run means proving the same test
+split was held out. Checkpoints, the tokenizer snapshot and TRL's frozen fp32 reference
+adapter are gitignored: reproducible bulk, not deliverables.
+
+### Configuration
+
+Hyperparameters live in `configs/training/dpo_qlora.yaml`, separate from the root
+`config.yaml`, so a second experiment is a second file rather than an edit. Every field is
+overridable per invocation (`--learning-rate`, `--beta`, `--epochs`, `--max-steps`,
+`--seed`, `--lora-r`), so changing one never requires editing YAML *or* Python.
+
+### Testing
+
+```bash
+pytest -q          # offline, zero skips — no GPU, no model, no heavy imports
+pytest -q -m gpu   # the real stack: 4-bit load, LoRA, a training step, adapter reload
+```
+
+The GPU suite **fails rather than skips** when CUDA or the training extra is missing, for
+the same reason the Docker suites do: a quietly-unrun QLoRA suite is worse than a red one.

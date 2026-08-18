@@ -8,6 +8,7 @@ paths:
   evaluations: data/evaluations
   rankings: data/rankings
   preferences: data/preferences
+  training: data/training
   reports: data/reports
 
 logging:

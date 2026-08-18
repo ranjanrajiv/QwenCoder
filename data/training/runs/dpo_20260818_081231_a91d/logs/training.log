@@ -1,0 +1,2 @@
+2026-08-18 13:42:37,338 | INFO | python_dpo.training.loader | Total parameters: 1,706,045,440 | Trainable parameters: 7,372,800 | Trainable percentage: 0.4322%
+2026-08-18 13:42:57,498 | INFO | python_dpo.training.verify | Adapter reload successful (64 token(s) generated).

@@ -70,6 +70,31 @@ from .preferences import (
     validate_preference_run,
 )
 from .preferences import RUN_MANIFEST_FILENAME as PREFERENCE_MANIFEST_FILENAME
+from .training import (
+    TRAINER_VERSION,
+    DatasetManifest,
+    DpoTrainingJob,
+    ExperimentConfig,
+    FinalReport,
+    TrainingError,
+    TrainingRunNotFoundError,
+    TrainingRunRepository,
+    check_hardware,
+    format_dataset_statistics,
+    format_exception,
+    format_final_report,
+    format_hardware_report,
+    format_length_analysis,
+    format_parameter_counts,
+    format_run_table,
+    load_training_dataset,
+    run_inference,
+    verify_adapter,
+)
+from .training.config import DEFAULT_CONFIG_PATH
+from .training.run_repository import MANIFEST_FILENAME as TRAINING_MANIFEST_FILENAME
+from .training.run_repository import run_log_file
+from .training.versions import capture_environment
 from .ranking import (
     CLASSIFIER_VERSION,
     COMPARATOR_VERSION,
@@ -1710,6 +1735,33 @@ def _add_rankings_parser(subparsers: argparse._SubParsersAction) -> None:
 # ------------------------------------------------------------------------- preferences
 
 
+def _parse_split_ratios(raw: str) -> dict[str, float]:
+    """Parse ``--split-ratios TRAIN,VALIDATION,TEST`` into the splitter's mapping.
+
+    Exists so the split can be varied per invocation like every other preference
+    parameter. At small problem counts the ratios decide whether a validation split
+    exists at all — ``floor(n x 0.1)`` is zero below ten pair-bearing problems — so
+    requiring a config edit to change them would make the difference between a trainable
+    and an untrainable dataset a file edit rather than a flag.
+    """
+    parts = [part.strip() for part in raw.split(",")]
+    if len(parts) != 3:
+        raise ValueError(
+            f"--split-ratios must be three comma-separated numbers "
+            f"(TRAIN,VALIDATION,TEST), got {raw!r}"
+        )
+    try:
+        values = [float(part) for part in parts]
+    except ValueError:
+        raise ValueError(f"--split-ratios must be numbers, got {raw!r}") from None
+    if any(value < 0 for value in values):
+        raise ValueError("--split-ratios values must not be negative")
+    total = sum(values)
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"--split-ratios must sum to 1.0, got {total}")
+    return {"train": values[0], "validation": values[1], "test": values[2]}
+
+
 def _preference_run_repository(config: Config) -> PreferenceRunRepository:
     return PreferenceRunRepository(config.paths.preferences / "runs")
 
@@ -1816,7 +1868,14 @@ def _cmd_preferences_generate(args: argparse.Namespace, config: Config) -> int:
         else config.preferences.max_pairs_per_problem
     )
     split_seed = args.split_seed if args.split_seed is not None else config.preferences.split.seed
-    split_ratios = config.preferences.split.as_ratios()
+    if args.split_ratios is not None:
+        try:
+            split_ratios = _parse_split_ratios(args.split_ratios)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
+    else:
+        split_ratios = config.preferences.split.as_ratios()
 
     preference_run_repo = _preference_run_repository(config)
 
@@ -2066,6 +2125,14 @@ def _add_preferences_parser(subparsers: argparse._SubParsersAction) -> None:
         help="Cap pairs kept per problem, largest margin first (default: config.yaml value).",
     )
     generate_parser.add_argument(
+        "--split-ratios",
+        default=None,
+        dest="split_ratios",
+        metavar="TRAIN,VALIDATION,TEST",
+        help="Train/validation/test split ratios, comma-separated and summing to 1.0 "
+        "(default: values from config.yaml).",
+    )
+    generate_parser.add_argument(
         "--split-seed",
         type=int,
         default=None,
@@ -2105,6 +2172,413 @@ def _add_preferences_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     validate_parser.add_argument("--preference-run-id", required=True, dest="preference_run_id")
     validate_parser.set_defaults(func=_cmd_preferences_validate)
+
+
+# --------------------------------------------------------------------------------- train
+
+
+def _training_run_repository(config: Config) -> TrainingRunRepository:
+    return TrainingRunRepository(config.paths.training / "runs")
+
+
+def _cmd_train_hardware_check(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 13. Writes to stdout and exits non-zero when unusable."""
+    report = check_hardware()
+    sys.stdout.write(format_hardware_report(report))
+    return 0 if report.passed else 1
+
+
+def _load_experiment_config(args: argparse.Namespace) -> ExperimentConfig:
+    """Load the experiment YAML and apply CLI overrides (spec sections 62, 63)."""
+    path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    experiment = ExperimentConfig.load(path)
+    return experiment.with_overrides(
+        preference_run_id=args.preference_run_id,
+        experiment_name=getattr(args, "experiment_name", None),
+        learning_rate=getattr(args, "learning_rate", None),
+        beta=getattr(args, "beta", None),
+        num_train_epochs=getattr(args, "epochs", None),
+        max_steps=getattr(args, "max_steps", None),
+        seed=getattr(args, "seed", None),
+        lora_r=getattr(args, "lora_r", None),
+    )
+
+
+def _cmd_train_dpo(args: argparse.Namespace, config: Config) -> int:
+    """Train a LoRA adapter with DPO (spec sections 64-67).
+
+    ``--dry-run`` and ``--smoke-test`` take the same path as a real run and stop early,
+    so what they validate is the code that actually trains.
+    """
+    try:
+        experiment = _load_experiment_config(args)
+    except TrainingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    preference_run_id = experiment.dataset.preference_run_id
+    if not preference_run_id:
+        logger.error(
+            "no preference run specified; pass --preference-run-id or set "
+            "dataset.preference_run_id in the config"
+        )
+        return 1
+
+    preference_run_dir = _preference_run_repository(config).run_dir(preference_run_id)
+    try:
+        dataset = load_training_dataset(
+            preference_run_dir,
+            allow_small_dataset=args.allow_small_dataset,
+            min_training_pairs=experiment.training.min_training_pairs,
+        )
+    except TrainingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(format_dataset_statistics(dataset))
+
+    mode = "train"
+    if args.dry_run:
+        mode = "dry_run"
+    elif args.smoke_test:
+        mode = "smoke_test"
+
+    training_run_repo = _training_run_repository(config)
+    hardware_report = check_hardware()
+    environment = capture_environment()
+
+    manifest = training_run_repo.create_run(
+        experiment_name=experiment.experiment_name,
+        model_name=experiment.model.name,
+        model_revision=experiment.model.revision,
+        tokenizer_revision=experiment.model.revision,
+        preference_run_id=dataset.preference_run_id,
+        ranking_run_id=dataset.provenance["ranking_run_id"],
+        evaluation_run_id=dataset.provenance["evaluation_run_id"],
+        candidate_run_id=dataset.provenance["candidate_run_id"],
+        dataset_hashes=dataset.split_hashes,
+        hardware=hardware_report.info.to_dict(),
+        environment=environment,
+        configuration=experiment.to_dict(),
+        seed=experiment.training.seed,
+        data_seed=experiment.training.data_seed,
+        trainer_version=TRAINER_VERSION,
+        mode=mode,
+    )
+    run_id = manifest.training_run_id
+
+    if args.resume_from_checkpoint:
+        try:
+            training_run_repo.check_resume_compatibility(
+                args.resume_from_checkpoint,
+                dataset_hashes=dataset.split_hashes,
+                configuration=experiment.to_dict(),
+                force=args.force_resume,
+            )
+        except TrainingError as exc:
+            logger.error("%s", exc)
+            return 1
+
+    training_run_repo.write_config(run_id, experiment.to_dict())
+    training_run_repo.write_hardware(run_id, hardware_report.info.to_dict())
+    training_run_repo.write_dataset_manifest(
+        run_id,
+        DatasetManifest(
+            preference_run_id=dataset.preference_run_id,
+            preference_version=dataset.provenance["preference_version"],
+            selection_policy=dataset.provenance["selection_policy"],
+            selection_policy_version=dataset.provenance["selection_policy_version"],
+            dataset_schema_version=dataset.provenance["dataset_schema_version"],
+            ranking_run_id=dataset.provenance["ranking_run_id"],
+            evaluation_run_id=dataset.provenance["evaluation_run_id"],
+            candidate_run_id=dataset.provenance["candidate_run_id"],
+            split_hashes=dataset.split_hashes,
+            split_counts=dataset.split_counts,
+            split_problem_ids=dataset.split_problem_ids,
+            statistics={
+                "splits": dataset.statistics,
+                "balance": dataset.balance.to_dict(),
+            },
+        ),
+    )
+    training_run_repo.start_run(run_id)
+    logger.info(
+        "Training run %s created | mode=%s | model=%s | dataset=%s",
+        run_id,
+        mode,
+        experiment.model.name,
+        dataset.preference_run_id,
+    )
+
+    job = DpoTrainingJob(
+        experiment,
+        dataset,
+        training_run_repo,
+        run_id,
+        mode=mode,
+        allow_small_dataset=args.allow_small_dataset,
+        override_truncation=args.override_truncation,
+    )
+
+    try:
+        with run_log_file(training_run_repo.log_path(run_id)):
+            outcome = job.run()
+    except KeyboardInterrupt:
+        training_run_repo.interrupt_run(run_id)
+        logger.warning("Training run %s interrupted", run_id)
+        return 130
+    except TrainingError as exc:
+        error_type, message, tb = format_exception(exc)
+        training_run_repo.fail_run(
+            run_id, error_type=error_type, error_message=message, traceback_text=tb
+        )
+        logger.error("%s", message)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - section 82: record, then re-report
+        error_type, message, tb = format_exception(exc)
+        training_run_repo.fail_run(
+            run_id, error_type=error_type, error_message=message, traceback_text=tb
+        )
+        logger.error("training failed (%s): %s", error_type, message)
+        return 1
+
+    preflight = outcome.preflight
+    if preflight.length_analysis is not None:
+        sys.stdout.write(format_length_analysis(preflight.length_analysis))
+    if preflight.parameter_counts is not None:
+        sys.stdout.write(format_parameter_counts(preflight.parameter_counts))
+
+    if mode == "dry_run":
+        training_run_repo.complete_run(run_id)
+        sys.stdout.write(
+            f"Dry run complete for {run_id}. No training was performed.\n"
+        )
+        return 0
+
+    counts = preflight.parameter_counts
+    report = FinalReport(
+        training_run_id=run_id,
+        experiment_name=experiment.experiment_name,
+        status="completed",
+        model_name=experiment.model.name,
+        model_revision=experiment.model.revision,
+        preference_run_id=dataset.preference_run_id,
+        number_of_examples={
+            "train": dataset.split_counts["train"],
+            "validation": dataset.split_counts["validation"],
+        },
+        epochs=outcome.epochs,
+        steps=outcome.steps,
+        final_train_loss=outcome.final_train_loss,
+        final_eval_loss=outcome.final_eval_loss,
+        reward_metrics=outcome.reward_metrics,
+        peak_gpu_memory_bytes=outcome.peak_gpu_memory_bytes,
+        trainable_parameters=counts.trainable if counts else 0,
+        total_parameters=counts.total if counts else 0,
+        effective_batch_size=experiment.effective_batch_size,
+        optimizer=preflight.optimizer_name,
+        compute_dtype=preflight.compute_dtype,
+        adapter_path=outcome.adapter_path,
+        checkpoint_path=outcome.checkpoint_path,
+        adapter_reload_ok=bool(outcome.reload and outcome.reload.ok),
+        training_duration_seconds=outcome.duration_seconds,
+    )
+    training_run_repo.write_final_report(run_id, report)
+    training_run_repo.complete_run(run_id)
+
+    sys.stdout.write(format_final_report(report))
+    return 0
+
+
+def _cmd_train_verify(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 74's mandatory adapter reload."""
+    training_run_repo = _training_run_repository(config)
+    try:
+        manifest = training_run_repo.get_run(args.training_run_id)
+    except TrainingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    try:
+        experiment = ExperimentConfig.from_mapping(manifest.configuration)
+    except TrainingError as exc:
+        logger.error("stored configuration is unusable: %s", exc)
+        return 1
+
+    adapter_dir = training_run_repo.adapter_dir(args.training_run_id)
+    compute_dtype = manifest.configuration.get("quantization", {}).get(
+        "compute_dtype", "bfloat16"
+    )
+    try:
+        result = verify_adapter(adapter_dir, experiment, compute_dtype=compute_dtype)
+    except TrainingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write("Adapter reload successful.\n")
+    sys.stdout.write(f"  adapter: {result.adapter_path}\n")
+    sys.stdout.write(f"  prompt:  {result.prompt}\n")
+    sys.stdout.write(f"  tokens:  {result.generated_tokens}\n")
+    return 0
+
+
+def _cmd_train_inference(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 75: base model + trained adapter."""
+    training_run_repo = _training_run_repository(config)
+    try:
+        manifest = training_run_repo.get_run(args.training_run_id)
+    except TrainingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    try:
+        experiment = ExperimentConfig.from_mapping(manifest.configuration)
+    except TrainingError as exc:
+        logger.error("stored configuration is unusable: %s", exc)
+        return 1
+
+    adapter_dir = training_run_repo.adapter_dir(args.training_run_id)
+    compute_dtype = manifest.configuration.get("quantization", {}).get(
+        "compute_dtype", "bfloat16"
+    )
+    try:
+        response = run_inference(
+            adapter_dir,
+            experiment,
+            args.prompt,
+            compute_dtype=compute_dtype,
+            max_new_tokens=args.max_new_tokens,
+        )
+    except TrainingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(response + "\n")
+    return 0
+
+
+def _cmd_train_list(args: argparse.Namespace, config: Config) -> int:
+    manifests = _training_run_repository(config).list_runs()
+    if not manifests:
+        sys.stdout.write("No training runs found.\n")
+        return 0
+    sys.stdout.write(format_run_table(manifests))
+    return 0
+
+
+def _cmd_train_show(args: argparse.Namespace, config: Config) -> int:
+    training_run_repo = _training_run_repository(config)
+    try:
+        training_run_repo.get_run(args.training_run_id)
+    except TrainingRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+    report = training_run_repo.read_final_report(args.training_run_id)
+    if report is None:
+        logger.error("no final report for %r yet", args.training_run_id)
+        return 1
+    sys.stdout.write(format_final_report(report))
+    return 0
+
+
+def _add_train_parser(subparsers: argparse._SubParsersAction) -> None:
+    train_parser = subparsers.add_parser(
+        "train",
+        help="Fine-tune a LoRA adapter on the preference dataset with DPO.",
+        description=(
+            "Train a LoRA adapter over a frozen, 4-bit quantized Qwen Coder base using "
+            "TRL's DPOTrainer. Never executes candidate code, and makes no claim about "
+            "Python programming performance -- that is Step 10's job."
+        ),
+    )
+    train_parser.set_defaults(func=_make_help_handler(train_parser))
+    train_subparsers = train_parser.add_subparsers(dest="train_command")
+
+    hardware_parser = train_subparsers.add_parser(
+        "hardware-check", help="Report GPU, CUDA, BF16 and 4-bit capability."
+    )
+    hardware_parser.set_defaults(func=_cmd_train_hardware_check)
+
+    dpo_parser = train_subparsers.add_parser("dpo", help="Run DPO/QLoRA training.")
+    dpo_parser.add_argument(
+        "--config",
+        default=None,
+        help=f"Experiment config YAML (default: {DEFAULT_CONFIG_PATH}).",
+    )
+    dpo_parser.add_argument(
+        "--preference-run-id", default=None, dest="preference_run_id"
+    )
+    dpo_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="Validate hardware, dataset, tokenizer, model, quantization and LoRA, then "
+        "stop without training.",
+    )
+    dpo_parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        dest="smoke_test",
+        help="Train a handful of examples for a couple of steps to prove the stack works.",
+    )
+    dpo_parser.add_argument(
+        "--allow-small-dataset",
+        action="store_true",
+        dest="allow_small_dataset",
+        help="Proceed when the validation split is empty (evaluation is disabled).",
+    )
+    dpo_parser.add_argument(
+        "--override-truncation",
+        action="store_true",
+        dest="override_truncation",
+        help="Continue even when the truncation rate exceeds the configured threshold.",
+    )
+    dpo_parser.add_argument(
+        "--resume-from-checkpoint", default=None, dest="resume_from_checkpoint"
+    )
+    dpo_parser.add_argument(
+        "--force-resume",
+        action="store_true",
+        dest="force_resume",
+        help="Resume even when the dataset hashes differ from the original run.",
+    )
+    dpo_parser.add_argument("--experiment-name", default=None, dest="experiment_name")
+    dpo_parser.add_argument("--learning-rate", type=float, default=None, dest="learning_rate")
+    dpo_parser.add_argument("--beta", type=float, default=None, dest="beta")
+    dpo_parser.add_argument("--epochs", type=int, default=None, dest="epochs")
+    dpo_parser.add_argument("--max-steps", type=int, default=None, dest="max_steps")
+    dpo_parser.add_argument("--seed", type=int, default=None, dest="seed")
+    dpo_parser.add_argument("--lora-r", type=int, default=None, dest="lora_r")
+    dpo_parser.set_defaults(func=_cmd_train_dpo)
+
+    verify_parser = train_subparsers.add_parser(
+        "verify", help="Reload the saved adapter and generate (mandatory check)."
+    )
+    verify_parser.add_argument(
+        "--training-run-id", required=True, dest="training_run_id"
+    )
+    verify_parser.set_defaults(func=_cmd_train_verify)
+
+    inference_parser = train_subparsers.add_parser(
+        "inference", help="Generate with the base model plus the trained adapter."
+    )
+    inference_parser.add_argument(
+        "--training-run-id", required=True, dest="training_run_id"
+    )
+    inference_parser.add_argument("--prompt", required=True)
+    inference_parser.add_argument(
+        "--max-new-tokens", type=int, default=256, dest="max_new_tokens"
+    )
+    inference_parser.set_defaults(func=_cmd_train_inference)
+
+    list_parser = train_subparsers.add_parser("list", help="List training runs.")
+    list_parser.set_defaults(func=_cmd_train_list)
+
+    show_parser = train_subparsers.add_parser(
+        "show", help="Show one training run's final report."
+    )
+    show_parser.add_argument("--training-run-id", required=True, dest="training_run_id")
+    show_parser.set_defaults(func=_cmd_train_show)
 
 
 # ------------------------------------------------------------------------------- sandbox
@@ -2237,6 +2711,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_rank_parser(subparsers)
     _add_rankings_parser(subparsers)
     _add_preferences_parser(subparsers)
+    _add_train_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

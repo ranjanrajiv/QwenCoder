@@ -178,4 +178,7 @@ were verified up front: an RTX 3060 with ~11.7 GiB free, the base model already 
 trl 1.10 / peft 0.20 / bitsandbytes 0.50 / datasets 5.0 resolving without downgrading torch
 or transformers. The plan states plainly that three training records is under one
 gradient-accumulation cycle — this stage validates the QLoRA/DPO stack, not the model.
-**Approved but not yet implemented.**
+This plan has been fully executed — see
+[`09_DPO_QLORA_TRAINING.md`](../../09_DPO_QLORA_TRAINING.md) for the implementation
+report, including the two TRL 1.10 API changes (`max_prompt_length` and `warmup_ratio`
+no longer exist on `DPOConfig`) that the plan flagged as its biggest unknown.

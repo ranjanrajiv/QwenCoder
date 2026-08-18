@@ -23,6 +23,20 @@ model = [
     "transformers>=4.44",
     "accelerate>=0.30",
 ]
+# DPO/QLoRA training (Stage 9), deliberately optional for the same reason as `model`:
+# the core install and the whole default test suite run without it. Floors are set at the
+# versions this stage was actually built and verified against, not the lowest plausible --
+# TRL 1.x changed the DPOTrainer/DPOConfig surface materially from 0.x, so a lower floor
+# would resolve to an API this code does not speak.
+training = [
+    "torch>=2.2",
+    "transformers>=4.56",
+    "accelerate>=0.30",
+    "trl>=1.10",
+    "peft>=0.20",
+    "bitsandbytes>=0.50",
+    "datasets>=5.0",
+]
 
 [project.scripts]
 python-dpo = "python_dpo.cli:main"
@@ -40,7 +54,8 @@ pythonpath = ["src"]
 # `pytest -q` stays offline, dependency-free, and reports zero skips on any machine.
 # Run the sandbox suite explicitly with `pytest -q -m integration` (a -m on the command
 # line overrides the one here), or everything with `pytest -q -m ""`.
-addopts = "-ra -m 'not integration'"
+addopts = "-ra -m 'not integration and not gpu'"
 markers = [
     "integration: requires a running Docker daemon",
+    "gpu: requires a CUDA GPU and the training extra (pip install -e '.[training]')",
 ]

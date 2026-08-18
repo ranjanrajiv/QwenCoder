@@ -1,11 +1,10 @@
 # src/python_dpo/
 
-The `python_dpo` package — the installable core of the project. Through Stage 8 (see the
+The `python_dpo` package — the installable core of the project. Through Stage 9 (see the
 root [README.md](../../README.md)) it holds the foundation — packaging, CLI, logging,
 configuration — the problem dataset, the model abstraction, candidate generation, a
 reliable per-run persistence layer, the isolated Docker sandbox, the candidate test
-executor, candidate ranking, and DPO preference pair generation. No training code lives
-here yet.
+executor, candidate ranking, DPO preference pair generation, and DPO/QLoRA training.
 
 ## Subpackages
 
@@ -76,11 +75,20 @@ identical code never produce one, and no model of any kind is ever called.
 deduplication; `PreferenceRepository` and `PreferenceRunRepository` own persistence,
 mirroring `ranking/`. See its [README](preferences/README.md).
 
+### [`training/`](training/)
+
+Introduced in Stage 9. Fine-tunes a LoRA adapter over a frozen, 4-bit quantized Qwen Coder
+base with TRL's `DPOTrainer`. The base model stays frozen — `count_parameters` refuses to
+proceed if every parameter is trainable — no candidate code is ever executed, and the
+stage makes no claim about Python performance, which is Step 10's job. Every heavy import
+(torch, transformers, trl, peft, bitsandbytes) is deferred into the function that needs it.
+See its [README](training/README.md).
+
 ## Files
 
 ### `__init__.py`
 
-Defines `__version__ = "0.8.0"` and `__all__ = ["__version__"]`. This is the single
+Defines `__version__ = "0.9.0"` and `__all__ = ["__version__"]`. This is the single
 source of truth for the package version — `pyproject.toml` reads it dynamically via
 `[tool.setuptools.dynamic]` so the two can never drift. Deliberately has no other
 imports, so `import python_dpo` stays cheap and has no dependency side effects.
@@ -115,7 +123,7 @@ keeps runtime dependencies minimal).
   so tests can construct an isolated parser without touching global state. Registers
   `--version` (via argparse's built-in `action="version"`) and `--log-level`, plus
   `problems`, `generate`, `runs`, `candidates`, `sandbox`, `evaluate`, `evaluations`,
-  `rank`, `rankings`, `preferences`, and the `run` placeholder.
+  `rank`, `rankings`, `preferences`, `train`, and the `run` placeholder.
 - `generate` is implemented (Stage 3/4). `_cmd_generate` dispatches to
   `_cmd_generate_fresh` (loads the dataset, narrows it with `--problem-id`/`--limit`,
   resolves strategies, either prints prompts via `--dry-run` or creates a new run and
@@ -166,6 +174,13 @@ keeps runtime dependencies minimal).
   --preference-run-id --preference-id [--show-code]` / `preferences stats` /
   `preferences validate` inspect and validate one preference run via
   `PreferenceRunRepository` / `validate_preference_run`.
+- `train hardware-check` / `train dpo --config PATH --preference-run-id ID [--dry-run]
+  [--smoke-test] [--allow-small-dataset] [--resume-from-checkpoint] [--force-resume]` /
+  `train verify` / `train inference` / `train list` / `train show` (Stage 9) fine-tune a
+  LoRA adapter with DPO. `--dry-run` and `--smoke-test` take the *same* code path as a
+  real run and stop early, so what they validate is the code that actually trains. Every
+  hyperparameter is overridable per invocation (`--learning-rate`, `--beta`, `--epochs`,
+  `--max-steps`, `--seed`, `--lora-r`), so changing one never requires editing YAML.
 - `problems` is implemented (Stage 2) and owns two subcommands:
   - `_cmd_problems_build` — builds the curated catalog, validates it, and writes
     `data/problems/problems.jsonl`. It writes **nothing** unless the whole dataset
@@ -200,9 +215,9 @@ on `PyYAML` (spec §6 exception).
   looking for `pyproject.toml`; falls back to a path relative to this file if none is
   found. This is what lets the CLI work without depending on a specific working
   directory (spec §11).
-- `Paths` — a frozen dataclass holding the seven absolute data directory paths (`raw`,
-  `problems`, `candidates`, `evaluations`, `rankings`, `preferences`, `reports`). Its
-  `ensure_exists()` method creates all seven with `mkdir(parents=True, exist_ok=True)`.
+- `Paths` — a frozen dataclass holding the eight absolute data directory paths (`raw`,
+  `problems`, `candidates`, `evaluations`, `rankings`, `preferences`, `training`,
+  `reports`). Its `ensure_exists()` method creates all eight with `mkdir(parents=True, exist_ok=True)`.
 - `SandboxConfig` — the Stage 5 `sandbox:` section, defined in `sandbox/config.py` and
   wrapped here by `_parse_sandbox`. Like `ModelConfig`, the typed object lives in the layer
   it belongs to, so the dependency runs one way: configuration imports the sandbox package,
@@ -213,6 +228,11 @@ on `PyYAML` (spec §6 exception).
   as `sandbox:`. Everything else the evaluation container needs — network mode, user,
   capabilities, resource limits — is inherited from `sandbox:` at run time by
   `build_evaluation_sandbox_config`, not re-specified here.
+- **No `training:` section in `config.yaml` either (Stage 9).** Training hyperparameters
+  live in a standalone `configs/training/dpo_qlora.yaml`, loaded by
+  `training.config.ExperimentConfig` rather than by this module. A second experiment is a
+  second file; and `ModelConfig.quantization` still rejects any non-null value, so the
+  root config could not express 4-bit NF4 in any case. Only `paths.training` is added here.
 - **No `ranking:` section (Stage 7).** Ranking has no tunable scoring parameters in v1 —
   every run's algorithm versions (`ranking_version`/`scoring_version`/
   `comparator_version`) and an empty `scoring_configuration` are recorded on

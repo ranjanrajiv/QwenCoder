@@ -14,7 +14,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-HEAVY_MODULES = ("torch", "transformers", "accelerate")
+HEAVY_MODULES = (
+    "torch",
+    "transformers",
+    "accelerate",
+    "trl",
+    "peft",
+    "bitsandbytes",
+    "datasets",
+)
 
 _PROBE = """
 import sys
@@ -26,6 +34,17 @@ import python_dpo.config
 import python_dpo.generation
 import python_dpo.models
 import python_dpo.models.qwen
+import python_dpo.training
+import python_dpo.training.callbacks
+import python_dpo.training.config
+import python_dpo.training.dataset
+import python_dpo.training.hardware
+import python_dpo.training.lengths
+import python_dpo.training.loader
+import python_dpo.training.run_repository
+import python_dpo.training.trainer
+import python_dpo.training.verify
+import python_dpo.training.versions
 
 heavy = [name for name in {heavy!r} if name in sys.modules]
 print(",".join(heavy))

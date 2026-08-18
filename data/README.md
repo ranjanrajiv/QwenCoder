@@ -7,8 +7,8 @@ preference dataset this project produces is the deliverable (spec §13). See the
 excluded (third-party datasets fetched in a later step are re-downloadable and not
 worth committing), everything else under `data/` is tracked normally.
 
-As of Stage 8, `problems/`, `candidates/`, `evaluations/`, `rankings/`, and
-`preferences/` hold real artifacts; the other subdirectories are still empty apart from a
+As of Stage 9, `problems/`, `candidates/`, `evaluations/`, `rankings/`, `preferences/`
+and `training/` hold real artifacts; the other subdirectories are still empty apart from a
 `.gitkeep` placeholder that keeps them present in git. They
 correspond 1:1 to the `paths.*` entries in [`config.yaml`](../config.yaml) and the
 `Paths` dataclass in [`src/python_dpo/config.py`](../src/python_dpo/config.py), whose
@@ -202,6 +202,42 @@ python -m python_dpo preferences list / show / stats / validate PREF_ID
 Preference run artifacts are committed for the same reason ranking run artifacts are: a
 record of what the real model's output actually earned as a preference label, not a
 rebuildable artifact.
+
+### `training/`
+
+**Populated (Stage 9).** LoRA adapters trained on a preference dataset with DPO, plus the
+provenance needed to reproduce the run.
+
+- `runs/<training_run_id>/` — every `train dpo` invocation creates its own directory,
+  `dpo_YYYYMMDD_HHMMSS_xxxx`:
+  - `manifest.json` — package versions, seeds, hardware, the upstream preference/ranking/
+    evaluation/candidate run ids, and status.
+  - `config.yaml` — the resolved experiment config actually used, so a run can be
+    re-executed by pointing `--config` straight at it.
+  - `dataset_manifest.json` — the preference provenance and SHA-256 hashes of **all three**
+    splits, test included: reproducing a run means proving the same test split was held out.
+  - `hardware.json` — GPU, CUDA, BF16 and 4-bit capability at run start.
+  - `metrics/metrics.jsonl` — per-step loss, DPO reward metrics and GPU memory.
+  - `logs/training.log`, `final_report.json`.
+  - `adapter/` — the trained LoRA adapter, ~14 MiB. **This is the artifact.**
+  - `checkpoints/`, `tokenizer/`, `adapter/ref/` — gitignored. Checkpoints accumulate per
+    `save_steps`, and TRL's `ref/` is a frozen fp32 reference copy not needed to load the
+    adapter. Reproducible bulk, not deliverables.
+
+Training never executes candidate code and makes no claim about programming performance:
+it produces `base model + adapter`, and Step 10 evaluates it.
+
+```bash
+python -m python_dpo train hardware-check
+python -m python_dpo train dpo --config configs/training/dpo_qlora.yaml \
+    --preference-run-id PREF_ID --dry-run
+python -m python_dpo train dpo --config configs/training/dpo_qlora.yaml \
+    --preference-run-id PREF_ID
+python -m python_dpo train verify --training-run-id TRAIN_ID
+```
+
+The committed run trained on 3 preference pairs — a single optimizer step. It is committed
+as evidence the stack works end to end, not as a meaningfully adapted model.
 
 ### `reports/`
 

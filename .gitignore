@@ -227,4 +227,16 @@ __marimo__/
 # data/raw/ contents (third-party datasets fetched in a later step) are
 # excluded, since those are re-downloadable and not something we want to commit.
 data/raw/*
+# A training run's checkpoints and tokenizer snapshot are reproducible bulk, not
+# deliverables: each checkpoint is roughly adapter + optimizer state, and they
+# accumulate per save_steps. The final adapter/ IS tracked -- it is the artifact.
+data/training/runs/*/checkpoints/
+data/training/runs/*/tokenizer/
+# TRL also writes a frozen fp32 reference adapter beside the trained one, plus a copy
+# of the tokenizer. Neither is needed to load the adapter (verified), and together they
+# are ~40 MB against the trained adapter's 14 MB.
+data/training/runs/*/adapter/ref/
+data/training/runs/*/adapter/tokenizer.json
+# ...but a training run's own log IS provenance, so it overrides the global *.log rule.
+!data/training/runs/*/logs/*.log
 !data/**/.gitkeep

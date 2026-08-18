@@ -1,0 +1,103 @@
+# DPO/QLoRA training experiment (spec 09 section 62).
+#
+# Deliberately separate from the root config.yaml: these are the values an experimenter
+# iterates on, and a second experiment should be a second file rather than an edit. The
+# root config.yaml stays the pipeline's own configuration.
+#
+# Every value here is overridable per-invocation by a `train dpo` flag, so changing a
+# hyperparameter never requires editing this file either (section 63).
+#
+# Tuned conservatively for a 12 GB RTX 3060 (sections 11, 37, 39, 48).
+
+experiment_name: qwen-python-dpo
+
+model:
+  # The base model stays frozen; only the LoRA adapter trains (section 3).
+  name: "Qwen/Qwen2.5-Coder-3B-Instruct"
+  # Pin a commit or tag for reproducibility; null resolves to the current default branch,
+  # and whatever it resolves to is recorded in the run manifest (sections 7, 61).
+  revision: null
+
+# 4-bit NF4 with double quantization, the QLoRA recommendation (sections 8, 9).
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+  # bfloat16 where the GPU supports it, else float16 — resolved at run time against the
+  # actual device, never blindly requested (section 10).
+  compute_dtype: bfloat16
+
+# Attention projections only, as the spec's initial configuration (section 15). Note that
+# Qwen2.5-Coder-3B uses grouped-query attention: k_proj/v_proj are 2048->256, not
+# 2048->2048, so this is ~7.4M trainable parameters, about 0.24% of the base model.
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  task_type: CAUSAL_LM
+
+dpo:
+  # Not universally optimal — an initial experiment value (section 44).
+  beta: 0.1
+  # The plain DPO baseline. Alternative losses are a later experiment (section 45).
+  loss_type: sigmoid
+
+training:
+  max_length: 1024
+  # Drives this stage's own truncation analysis (sections 34, 35). TRL 1.10's DPOConfig
+  # has no max_prompt_length field, so it is not passed through to the trainer.
+  max_prompt_length: 512
+  learning_rate: 1.0e-5
+  # The preference dataset is small and task-specific, so overfitting is a real risk
+  # (section 42).
+  num_train_epochs: 1
+  # -1 means "use epochs"; a positive value overrides them (section 43).
+  max_steps: -1
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  # Effective batch size = 1 x 8 x 1 device = 8 (section 38).
+  gradient_accumulation_steps: 8
+  # Trades compute for activation memory; needed on 12 GB (section 48).
+  gradient_checkpointing: true
+  # Converted to a warmup step count once the schedule length is known, since TRL 1.10's
+  # DPOConfig exposes warmup_steps rather than warmup_ratio (section 53).
+  warmup_ratio: 0.05
+  max_grad_norm: 1.0
+  lr_scheduler_type: cosine
+  seed: 42
+  data_seed: 42
+  save_steps: 100
+  eval_steps: 50
+  logging_steps: 1
+  # Downgraded to "no" automatically when the validation split is empty and
+  # --allow-small-dataset is passed (section 56).
+  eval_strategy: steps
+  # Fail preflight when more than 5% of examples would be truncated (section 36).
+  max_truncation_rate: 0.05
+  # Below this, warn that the dataset is too small for meaningful adaptation (section 103).
+  min_training_pairs: 500
+  # Apply the base model's chat template. Stage 3 generated every candidate through the
+  # same template, so training without it would train on a format the candidates were
+  # never produced under (sections 30, 31).
+  apply_chat_template: true
+
+optimizer:
+  # Falls back to adamw_torch when bitsandbytes cannot provide it; whichever is actually
+  # used is recorded in the manifest (section 50).
+  name: paged_adamw_8bit
+
+dataset:
+  # Set per-invocation with --preference-run-id (section 64).
+  preference_run_id: null
+
+# Step 9 supports a single GPU only. The key exists so a later stage can turn it on;
+# setting it true is rejected rather than silently ignored (sections 86, 87).
+distributed:
+  enabled: false
