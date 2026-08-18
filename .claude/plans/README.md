@@ -182,3 +182,36 @@ This plan has been fully executed — see
 [`09_DPO_QLORA_TRAINING.md`](../../09_DPO_QLORA_TRAINING.md) for the implementation
 report, including the two TRL 1.10 API changes (`max_prompt_length` and `warmup_ratio`
 no longer exist on `DPOConfig`) that the plan flagged as its biggest unknown.
+
+### `10_model_evaluation_plan.md`
+
+The implementation plan for Stage 10 — base vs DPO model evaluation — derived from
+[`.claude/specs/10_model_evaluation.md`](../specs/10_model_evaluation.md) and confirmed
+with the user before implementation started. It is where the question every prior stage
+deferred finally gets asked: a new `src/python_dpo/model_evaluation/` package that runs
+base Qwen and base + LoRA adapter over the same held-out problems with the same prompts,
+seeds and sandbox, then measures the difference with a correct pass@k estimator, paired
+bootstrap confidence intervals, win/tie/loss and McNemar — reusing the Stage 5 sandbox and
+Stage 6 executor for all execution, and calling no LLM judge anywhere.
+
+Its two consequential findings are measured from the committed artifacts. Stage 9 trained
+on only three problems, so the leakage-clean held-out set is **seven** problems rather than
+the single formally designated test problem — but **five of those seven are already solved
+perfectly by the base model** (5/5 candidates passing every test), leaving real headroom on
+only `p002` and `p004`. The benchmark can therefore mostly detect regression, not
+improvement, and the plan makes that a first-class headroom analysis rather than burying
+it; selecting only the two problems with headroom was explicitly rejected as benchmark
+contamination. Combined with a Stage 9 adapter that trained for one optimizer step, the
+expected verdict is `DPO_SUCCESS = false` with a paired CI straddling zero — and the plan
+declines to adjust the success thresholds to produce a pass.
+
+It also records the three approved decisions (all seven held-out problems with the ceiling
+reported; the first full run treated as pipeline validation reported honestly; and a
+benchmark manifest that references problem ids and hashes their content rather than
+snapshotting them), the reuse survey that shows `CandidateEvaluator` accepts an in-memory
+`Candidate` so Stage 6's execution *and classification* can be reused without Stage 4's run
+plumbing, and the finding that a new inference layer is unavoidable because
+`QwenModelClient` supports seeding but not adapters or quantization while
+`training/verify.py` supports adapters but is greedy-only and unseeded. pass@k, bootstrap
+and McNemar are hand-rolled in pure stdlib, adding no dependencies.
+**Approved but not yet implemented.**
