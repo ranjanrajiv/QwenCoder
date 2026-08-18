@@ -123,3 +123,29 @@ candidate pairs are ties, and 31 of 50 candidates are duplicate code. Tie handli
 therefore the majority behaviour rather than an edge case, and the `indeterminate` path has
 zero real coverage and must be driven by synthetic fixtures. The plan carries exact
 expected acceptance numbers for the real run. **Approved but not yet implemented.**
+
+### `08_preference_pair_generation_plan.md`
+
+The implementation plan for Stage 8 — DPO preference pair generation — derived from
+[`.claude/specs/08_preference_pair_generation.md`](../specs/08_preference_pair_generation.md)
+and confirmed with the user before implementation started. It turns Stage 7's neutral
+`A_BETTER`/`TIE` orderings into `{prompt, chosen, rejected}` training records: a new
+`src/python_dpo/preferences/` package with three selection policies (`strict`, `margin`,
+`all_better`), a configurable minimum score margin, three separate deduplication notions,
+problem-level train/validation/test splitting, a dataset validator, and full audit
+provenance — while calling no model of any kind and never altering a byte of the candidate
+code.
+
+Its blocking finding is measured from the committed candidate run: **all 50 candidates have
+distinct `prompt_sha256`**, because the generation prompt embeds the per-candidate strategy,
+so §41's literal prompt-equality check would yield **zero pairs under every policy**. The
+four approved decisions follow from that and from the rest of the real data (a canonical,
+strategy-free problem prompt whose lineage is *verified* against every candidate's stored
+hash rather than waived; `minimum_score_margin` gating the margin policy but not strict, so
+p008's 9/9-vs-8/9 correctness gap survives; the training JSONL deduplicated by
+`(prompt, chosen, rejected)` while `metadata.jsonl` keeps every pair; and the split pool
+being the pair-bearing problems with a floor rule keeping train non-empty). The second
+consequential finding is scale: 78 of the 100 comparisons are ties, strict yields 12 pairs
+across just 2 problems, and those 12 collapse to **3 distinct training records**. The plan
+carries exact expected acceptance numbers per policy and states plainly that the pipeline —
+not the dataset — is what this stage validates. **Approved but not yet implemented.**
