@@ -35,6 +35,46 @@ printed to stdout from the CLI layer), plus the semantics chosen for each of the
 problems where the spec required an explicit ruling on ties, ordering, and
 invalid-input behavior. **Approved but not yet implemented.**
 
+### `03_qwen_candidate_generator_plan.md`
+
+The implementation plan for Stage 3 — the Qwen candidate generator — derived from
+[`.claude/specs/03_qwen_candidate_generator.md`](../specs/03_qwen_candidate_generator.md)
+and confirmed with the user before implementation started. Stage 2 delivered ground truth
+but nothing to have an opinion *about*; this stage produces the model output every later
+stage ranks. It adds three packages — `src/python_dpo/models/` (a `ModelClient` protocol,
+the lazily-loading `QwenModelClient`, and a deterministic `MockModelClient`),
+`src/python_dpo/generation/` (five prompting strategies, prompt construction, code
+extraction, syntax validation) and `src/python_dpo/candidates/` (the candidate schema and
+append-only persistence) — plus the `generate` CLI command.
+
+The hard boundary it respects is that the generator answers **"what code did Qwen
+generate?"** and nothing else: it never executes a candidate, never decides correctness, and
+never repairs malformed output. `ast.parse()` is the only thing that touches generated code,
+which is what keeps CLAUDE.md's Security rule intact — `InProcessReferenceExecutor` stays the
+only `exec()` in `src/`, and generated code is never routed to it.
+
+Its most consequential work is resolving three internal contradictions **in the spec itself**
+rather than carrying them as deviations (the spec gained a Revision History and went v1.0 →
+v1.1): syntax errors produce a candidate with `syntax_valid: false` and no failure record
+while extraction failures produce a failure record and no candidate, since obeying both §19
+and §26 literally would record one generation twice; a model-load failure aborts the run with
+a single `model_load` failure rather than one identical failure per candidate; and
+`candidate_id` is unique per *run*, not per file, making `(run_id, candidate_id)` the key —
+the only way to satisfy deterministic IDs, new runs on `--force`, and the no-discarding rule
+at once. `error_type` was also narrowed to a closed set so failures are countable across runs.
+
+It records three approved decisions (`Qwen/Qwen2.5-Coder-3B-Instruct` as the default, set in
+`config.yaml` and never in Python source, sized to fit the RTX 3060's 12 GB in bf16 without
+quantization; `torch`/`transformers` confined to an optional `[model]` extra and imported
+lazily, so the default install and the whole pytest suite stay offline; and `--force`
+appending a new run rather than rewriting, since `candidates.jsonl` is append-only and
+nothing is ever deleted). Its closing note predicted the ceiling effect that went on to shape
+Stages 7–10 — that a 3B model would solve the easy problems nearly every time and yield no
+usable preference pair — which did materialize, though on a different set of problems than
+the ones it named. This plan has been fully executed — see
+[`03_QWEN_CANDIDATE_GENERATOR.md`](../../03_QWEN_CANDIDATE_GENERATOR.md) for the
+implementation report.
+
 ### `04_candidate_persistence_plan.md`
 
 The implementation plan for Stage 4 — candidate persistence, runs and reproducibility —
