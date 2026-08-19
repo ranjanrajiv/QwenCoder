@@ -1,0 +1,121 @@
+{
+  "candidate_run_id": "run_20260819_045228_77e6",
+  "completed_at": "2026-08-19T04:55:32Z",
+  "configuration": {
+    "dataset": {
+      "preference_run_id": "pref_20260819_045530_274a"
+    },
+    "distributed": {
+      "enabled": false
+    },
+    "dpo": {
+      "beta": 0.1,
+      "loss_type": "sigmoid"
+    },
+    "experiment_name": "qwen-python-dpo",
+    "lora": {
+      "alpha": 32,
+      "bias": "none",
+      "dropout": 0.05,
+      "r": 16,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "task_type": "CAUSAL_LM"
+    },
+    "model": {
+      "name": "Qwen/Qwen2.5-Coder-3B-Instruct",
+      "revision": null
+    },
+    "optimizer": {
+      "name": "paged_adamw_8bit"
+    },
+    "quantization": {
+      "bits": 4,
+      "compute_dtype": "bfloat16",
+      "double_quant": true,
+      "enabled": true,
+      "quant_type": "nf4"
+    },
+    "training": {
+      "apply_chat_template": true,
+      "data_seed": 42,
+      "eval_steps": 50,
+      "eval_strategy": "steps",
+      "gradient_accumulation_steps": 8,
+      "gradient_checkpointing": true,
+      "learning_rate": 1e-05,
+      "logging_steps": 1,
+      "lr_scheduler_type": "cosine",
+      "max_grad_norm": 1.0,
+      "max_length": 1024,
+      "max_prompt_length": 512,
+      "max_steps": 1,
+      "max_truncation_rate": 0.05,
+      "min_training_pairs": 500,
+      "num_train_epochs": 1,
+      "per_device_eval_batch_size": 1,
+      "per_device_train_batch_size": 1,
+      "save_steps": 100,
+      "seed": 42,
+      "warmup_ratio": 0.05
+    }
+  },
+  "created_at": "2026-08-19T04:55:31Z",
+  "data_seed": 42,
+  "dataset_hashes": {
+    "test": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "train": "9a0bbc346ae8bb0743e2d71db0579c724441edcfed24ae84b5e0e11a6837aae1",
+    "validation": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "environment": {
+    "nvidia_driver_version": "580.82.07",
+    "packages": {
+      "accelerate": "1.14.0",
+      "bitsandbytes": "0.50.1",
+      "datasets": "5.0.1",
+      "peft": "0.20.0",
+      "safetensors": "0.8.0",
+      "torch": "2.13.0",
+      "transformers": "5.15.0",
+      "trl": "1.10.0"
+    },
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.3"
+  },
+  "error": {
+    "error_message": "hardware check failed: 4.9 GiB free of 11.6 GiB total, below the 6.0 GiB needed; close other GPU processes or reduce max_length / batch size",
+    "error_type": "HardwareError",
+    "timestamp": "2026-08-19T04:55:32Z",
+    "traceback": "Traceback (most recent call last):\n  File \"/home/rajiv/QwenCoder/QwenCoder/src/python_dpo/pipeline/stages/dpo_training.py\", line 141, in run\n    outcome = job.run()\n              ^^^^^^^^^\n  File \"/home/rajiv/QwenCoder/QwenCoder/src/python_dpo/training/trainer.py\", line 210, in run\n    preflight = self.preflight()\n                ^^^^^^^^^^^^^^^^\n  File \"/home/rajiv/QwenCoder/QwenCoder/src/python_dpo/training/trainer.py\", line 141, in preflight\n    raise HardwareError(f\"hardware check failed: {detail}\")\npython_dpo.training.errors.HardwareError: hardware check failed: 4.9 GiB free of 11.6 GiB total, below the 6.0 GiB needed; close other GPU processes or reduce max_length / batch size\n"
+  },
+  "evaluation_run_id": "eval_20260819_045440_72aa",
+  "experiment_name": "qwen-python-dpo",
+  "hardware": {
+    "bf16_supported": true,
+    "bitsandbytes_available": true,
+    "compute_capability": "8.6",
+    "cuda_available": true,
+    "cuda_version": "13.0",
+    "device_count": 1,
+    "free_vram_bytes": 5280825344,
+    "gpu_name": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.13.0+cu130",
+    "total_vram_bytes": 12478906368
+  },
+  "manifest_version": "1.0",
+  "mode": "train",
+  "model_name": "Qwen/Qwen2.5-Coder-3B-Instruct",
+  "model_revision": null,
+  "preference_run_id": "pref_20260819_045530_274a",
+  "ranking_run_id": "rank_20260819_045528_7dae",
+  "seed": 42,
+  "started_at": "2026-08-19T04:55:31Z",
+  "status": "failed",
+  "tokenizer_revision": null,
+  "trainer_version": "v1",
+  "training_run_id": "dpo_20260819_045531_8446"
+}

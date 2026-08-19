@@ -1,0 +1,25 @@
+{
+  "models": {
+    "exp_20260819_060948_f72e": {
+      "base_model_name": "Qwen/Qwen2.5-Coder-3B-Instruct",
+      "base_model_revision": null,
+      "created_at": "2026-08-19T06:20:49Z",
+      "evaluation_run_id": null,
+      "experiment_run_id": "exp_20260819_060948_f72e",
+      "notes": null,
+      "package_path": "/home/rajiv/QwenCoder/QwenCoder/data/experiments/runs/exp_20260819_060948_f72e/model",
+      "status": "EXPERIMENTAL",
+      "training_run_id": "dpo_20260819_061731_8314",
+      "verification": {
+        "candidate_id": "_packaging_verification_cexp_20260819_060948_f72e",
+        "detail": "status=passed",
+        "extracted_code": "def add_two(a, b):\n    # Return the sum of a and b\n    return a + b",
+        "ok": true,
+        "raw_output": "Here's a simple Python function to add two numbers:\n\n```python\ndef add_two(a, b):\n    # Return the sum of a and b\n    return a + b\n```\n\nThis function takes two arguments, `a` and `b`, and returns their sum. You can call this function with any two numbers to get their sum.",
+        "tests_passed": 2,
+        "tests_total": 2
+      }
+    }
+  },
+  "registry_version": "registry_v1"
+}

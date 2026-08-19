@@ -1,0 +1,15 @@
+{
+  "cache_key": null,
+  "code_version": "0.10.0",
+  "configuration_hash": null,
+  "end_time": null,
+  "error": null,
+  "input_artifacts": {},
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "dpo_training",
+  "stage_run_id": "exp_20260819_050608_730e_dpo_training",
+  "start_time": null,
+  "status": "BLOCKED"
+}

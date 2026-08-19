@@ -1,0 +1,19 @@
+{
+  "cache_key": "4fff12473fa02ab70a9e3f528a757d58946fa3f803d867babd8ec29a2252e335",
+  "code_version": "0.10.0",
+  "configuration_hash": "3495512dd4d6c9cb08a0f290f6979549cf60d3dec4b25b38409388430ae87295",
+  "end_time": "2026-08-19T05:04:00Z",
+  "error": null,
+  "input_artifacts": {
+    "preferences": "8db732a764d8fa7eff8b08a80e4f59612ed1c7d8b76fe7dc269fb507a091643e"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {
+    "adapter": "61eb8bb5fffefeadf3fead3eac7b3740bb489de7c76385b594ded2a2ed4b2a49"
+  },
+  "reused": false,
+  "stage_name": "dpo_training",
+  "stage_run_id": "dpo_20260819_050034_ecd4",
+  "start_time": "2026-08-19T05:00:33Z",
+  "status": "COMPLETED"
+}

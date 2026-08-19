@@ -1,0 +1,22 @@
+{
+  "base": {
+    "1": {
+      "confidence": 0.95,
+      "iterations": 1000,
+      "lower": 0.0,
+      "point": 0.5,
+      "seed": 42,
+      "upper": 1.0
+    }
+  },
+  "dpo": {
+    "1": {
+      "confidence": 0.95,
+      "iterations": 1000,
+      "lower": 0.0,
+      "point": 0.5,
+      "seed": 42,
+      "upper": 1.0
+    }
+  }
+}

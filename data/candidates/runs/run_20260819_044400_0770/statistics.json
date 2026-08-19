@@ -1,0 +1,20 @@
+{
+  "candidates_by_strategy": {
+    "normal": 3,
+    "straightforward": 3
+  },
+  "candidates_generated": 6,
+  "candidates_requested": 6,
+  "computed_at": "2026-08-19T04:44:04Z",
+  "duplicates": 0,
+  "failures_by_error_type": {},
+  "function_name_valid": 6,
+  "generation_failures": 0,
+  "problems_completed": 3,
+  "problems_requested": 3,
+  "retry_attempts": 0,
+  "run_id": "run_20260819_044400_0770",
+  "statistics_version": "1.0",
+  "syntax_invalid": 0,
+  "syntax_valid": 6
+}

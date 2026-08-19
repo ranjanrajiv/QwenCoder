@@ -1,0 +1,10 @@
+{
+  "paired_pass_at_1": {
+    "confidence": 0.95,
+    "iterations": 1000,
+    "lower": 0.0,
+    "point": 0.0,
+    "seed": 42,
+    "upper": 0.0
+  }
+}

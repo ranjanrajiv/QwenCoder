@@ -1,0 +1,36 @@
+candidate_evaluation:
+  enabled: true
+candidate_execution:
+  enabled: true
+candidate_generation:
+  candidates_per_problem: 2
+  enabled: true
+dpo_training:
+  allow_small_dataset: true
+  config: configs/training/dpo_qlora.yaml
+  enabled: true
+  max_steps: 1
+error_analysis:
+  enabled: false
+experiment:
+  name: qwen-python-dpo-smoke
+  seed: 42
+git:
+  on_dirty: warn
+hypothesis:
+  description: The full pipeline executes end to end without error on a tiny dataset.
+model_evaluation:
+  benchmark: python_eval_v1
+  enabled: true
+  limit: 2
+  num_samples: 2
+packaging:
+  enabled: false
+preference_generation:
+  enabled: true
+  policy: all_better
+problem_dataset:
+  enabled: true
+  problem_count: 3
+success_criteria:
+  pass_at_1_delta: 0.0

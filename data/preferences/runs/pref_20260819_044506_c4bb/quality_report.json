@@ -1,0 +1,21 @@
+{
+  "chosen_pass_rate_distribution": {},
+  "computed_at": "2026-08-19T04:45:07Z",
+  "medium_pairs": 0,
+  "preference_run_id": "pref_20260819_044506_c4bb",
+  "problems_with_pairs": [],
+  "problems_without_pairs": {
+    "p001": "all_candidates_tied",
+    "p002": "all_candidates_tied",
+    "p003": "all_candidates_tied"
+  },
+  "rejected_pass_rate_distribution": {},
+  "report_version": "1.0",
+  "score_margin_distribution": {},
+  "strategy_distribution": {
+    "chosen": {},
+    "rejected": {}
+  },
+  "strong_pairs": 0,
+  "total_pairs": 0
+}

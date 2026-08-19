@@ -1,0 +1,27 @@
+{
+  "cuda_version": "13.0",
+  "docker_version": "Docker version 28.3.3, build 980b856",
+  "gpus": [
+    {
+      "memory_total": "12288 MiB",
+      "name": "NVIDIA GeForce RTX 3060"
+    }
+  ],
+  "machine": "x86_64",
+  "nvidia_driver_version": "580.82.07",
+  "os": "Linux",
+  "os_release": "6.8.0-137-generic",
+  "packages": {
+    "accelerate": "1.14.0",
+    "bitsandbytes": "0.50.1",
+    "datasets": "5.0.1",
+    "peft": "0.20.0",
+    "safetensors": "0.8.0",
+    "torch": "2.13.0",
+    "transformers": "5.15.0",
+    "trl": "1.10.0"
+  },
+  "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "pytest_version": "9.1.1",
+  "python_version": "3.12.3"
+}

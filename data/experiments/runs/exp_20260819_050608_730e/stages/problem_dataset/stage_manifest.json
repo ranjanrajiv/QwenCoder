@@ -1,0 +1,17 @@
+{
+  "cache_key": "9db1ca68a4c39b2ae26ad5251f4aebe4e6415981ccacb768c3191a9ae80e9ad0",
+  "code_version": "0.10.0",
+  "configuration_hash": "a93203bc9e054e8c5908a79388466d6c0ad13f8a8171f72a1496e19febaf22f0",
+  "end_time": "2026-08-19T05:06:31Z",
+  "error": null,
+  "input_artifacts": {},
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {
+    "problem_dataset": "c79836f64eb2cf190d27bced2b63361762dfb60f434905f01fdb360db93652d6"
+  },
+  "reused": true,
+  "stage_name": "problem_dataset",
+  "stage_run_id": "exp_20260819_045720_3f73_problem_dataset",
+  "start_time": "2026-08-19T05:06:31Z",
+  "status": "COMPLETED"
+}

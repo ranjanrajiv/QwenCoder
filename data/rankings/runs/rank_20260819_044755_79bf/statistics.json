@@ -1,0 +1,38 @@
+{
+  "candidates": 6,
+  "computed_at": "2026-08-19T04:47:56Z",
+  "correct": 4,
+  "fully_correct": 4,
+  "incorrect": 2,
+  "indeterminate": 0,
+  "partially_correct": 2,
+  "per_problem": {
+    "p001": {
+      "fully_correct": 2,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 2,
+      "zero_test_pass": 0
+    },
+    "p002": {
+      "fully_correct": 0,
+      "indeterminate": 0,
+      "partially_correct": 2,
+      "total": 2,
+      "zero_test_pass": 0
+    },
+    "p003": {
+      "fully_correct": 2,
+      "indeterminate": 0,
+      "partially_correct": 0,
+      "total": 2,
+      "zero_test_pass": 0
+    }
+  },
+  "preference_eligible_candidates": 6,
+  "problems": 3,
+  "ranking_run_id": "rank_20260819_044755_79bf",
+  "statistics_version": "1.0",
+  "tied_candidates": 6,
+  "zero_test_pass": 0
+}

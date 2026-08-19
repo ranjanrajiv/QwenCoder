@@ -1,0 +1,174 @@
+{
+  "benchmark_version": "python_eval_v1",
+  "comparison": {
+    "base_successfully_evaluated": 2,
+    "benchmark_problems": 2,
+    "dpo_losses": 0,
+    "dpo_successfully_evaluated": 2,
+    "dpo_win_rate": 0.0,
+    "dpo_wins": 0,
+    "paired_problems": 2,
+    "per_problem": [
+      {
+        "base_c": 2,
+        "base_n": 2,
+        "base_pass": true,
+        "base_test_pass_rate": 1.0,
+        "dpo_c": 2,
+        "dpo_n": 2,
+        "dpo_pass": true,
+        "dpo_test_pass_rate": 1.0,
+        "improvement": 0,
+        "problem_id": "p001",
+        "test_pass_delta": 0.0
+      },
+      {
+        "base_c": 0,
+        "base_n": 2,
+        "base_pass": false,
+        "base_test_pass_rate": 0.42857142857142855,
+        "dpo_c": 0,
+        "dpo_n": 2,
+        "dpo_pass": false,
+        "dpo_test_pass_rate": 0.42857142857142855,
+        "improvement": 0,
+        "problem_id": "p002",
+        "test_pass_delta": 0.0
+      }
+    ],
+    "ties": 2
+  },
+  "evaluation_run_id": "eval_20260819_061857_114a",
+  "executive_summary": "DPO showed no measurable difference in pass@1 (50.0% for both models).\n",
+  "failure_analysis": {
+    "base": {
+      "assertion_failure": 2,
+      "generation_error": 0,
+      "import_error": 0,
+      "infrastructure_error": 0,
+      "runtime_error": 0,
+      "syntax_error": 0,
+      "timeout": 0
+    },
+    "dpo": {
+      "assertion_failure": 2,
+      "generation_error": 0,
+      "import_error": 0,
+      "infrastructure_error": 0,
+      "runtime_error": 0,
+      "syntax_error": 0,
+      "timeout": 0
+    }
+  },
+  "generated_at": "2026-08-19T06:20:48Z",
+  "mcnemar": {
+    "base_only": 0,
+    "dpo_only": 0,
+    "n_discordant": 0,
+    "p_value": 1.0
+  },
+  "metrics": {
+    "base_pass_at_1": 0.5,
+    "base_syntax_success": 1.0,
+    "base_test_pass_rate": 0.7142857142857143,
+    "base_timeout_rate": 0.0,
+    "computed_at": "2026-08-19T06:20:48Z",
+    "dpo_pass_at_1": 0.5,
+    "dpo_syntax_success": 1.0,
+    "dpo_test_pass_rate": 0.7142857142857143,
+    "dpo_timeout_rate": 0.0,
+    "evaluation_run_id": "eval_20260819_061857_114a",
+    "execution_success_rate": {
+      "base": 1.0,
+      "dpo": 1.0
+    },
+    "generation_failure_rate": {
+      "base": 0.0,
+      "dpo": 0.0
+    },
+    "pass_at_k": {
+      "base": {
+        "1": 0.5
+      },
+      "dpo": {
+        "1": 0.5
+      }
+    },
+    "solve_rate": {
+      "base": 0.5,
+      "dpo": 0.5
+    },
+    "syntax_success_rate": {
+      "base": 1.0,
+      "dpo": 1.0
+    },
+    "test_failure_distribution": {
+      "base": {
+        "0%": 0,
+        "1-20%": 0,
+        "100%": 2,
+        "20-40%": 0,
+        "40-60%": 2,
+        "60-80%": 0,
+        "80-99%": 0
+      },
+      "dpo": {
+        "0%": 0,
+        "1-20%": 0,
+        "100%": 2,
+        "20-40%": 0,
+        "40-60%": 2,
+        "60-80%": 0,
+        "80-99%": 0
+      }
+    },
+    "test_pass_rate": {
+      "base": 0.7142857142857143,
+      "dpo": 0.7142857142857143
+    },
+    "timeout_rate": {
+      "base": 0.0,
+      "dpo": 0.0
+    }
+  },
+  "paired_pass_at_1_ci": {
+    "confidence": 0.95,
+    "iterations": 1000,
+    "lower": 0.0,
+    "point": 0.0,
+    "seed": 42,
+    "upper": 0.0
+  },
+  "pass_at_k_confidence_intervals": {
+    "base": {
+      "1": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.0,
+        "point": 0.5,
+        "seed": 42,
+        "upper": 1.0
+      }
+    },
+    "dpo": {
+      "1": {
+        "confidence": 0.95,
+        "iterations": 1000,
+        "lower": 0.0,
+        "point": 0.5,
+        "seed": 42,
+        "upper": 1.0
+      }
+    }
+  },
+  "success_criteria": {
+    "DPO_SUCCESS": false,
+    "catastrophic_regression_detected": false,
+    "overfitting_check": "not_applicable: Stage 10 does not evaluate training-set performance (spec section 69)",
+    "paired_ci_supports_improvement": true,
+    "pass_at_1_improves": false,
+    "pass_at_5_not_regressed": true,
+    "syntax_success_not_regressed": true,
+    "timeout_rate_not_increased": true
+  }
+}

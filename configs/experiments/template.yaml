@@ -1,0 +1,61 @@
+# Experiment template (spec section 59). Copy this file, fill in the blanks, and run:
+#
+#   python -m python_dpo experiment preflight --config configs/experiments/<name>.yaml
+#   python -m python_dpo experiment run --config configs/experiments/<name>.yaml
+#
+# Every stage section requires `enabled: true|false`; everything else is optional and
+# defaults to the value already configured in config.yaml or the stage's own standalone
+# config (configs/training/dpo_qlora.yaml, configs/evaluation/python_eval.yaml).
+
+experiment:
+  name: ""
+  seed: 42
+
+git:
+  on_dirty: warn  # warn | fail
+
+hypothesis:
+  description: ""
+
+success_criteria:
+  pass_at_1_delta: 0.02
+
+problem_dataset:
+  enabled: true
+  # problem_count: 10   # selects a subset of the curated catalog; omit for all of it
+
+candidate_generation:
+  enabled: true
+  # candidates_per_problem: 5
+  # problem_ids: [p001, p002]
+  # mock_model: false
+
+candidate_execution:
+  enabled: true
+  # limit: 10
+
+candidate_evaluation:
+  enabled: true
+  # limit: 10
+
+preference_generation:
+  enabled: true
+  # policy: strict   # strict | margin | all_better
+
+dpo_training:
+  enabled: true
+  config: configs/training/dpo_qlora.yaml
+  # beta: 0.1
+  # learning_rate: 1.0e-5
+
+model_evaluation:
+  enabled: true
+  benchmark: python_eval_v1
+  # num_samples: 10
+  # model: both   # base | dpo | both
+
+error_analysis:
+  enabled: false  # Stage 11 not implemented yet
+
+packaging:
+  enabled: true

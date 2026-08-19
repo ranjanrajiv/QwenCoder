@@ -1,0 +1,20 @@
+{
+  "candidate_run_id": "run_20260819_044600_9838",
+  "comparator_version": "v1",
+  "completed_at": "2026-08-19T04:47:56Z",
+  "created_at": "2026-08-19T04:47:55Z",
+  "error": null,
+  "evaluation_run_id": "eval_20260819_044728_e23d",
+  "manifest_version": "1.0",
+  "ranking_run_id": "rank_20260819_044755_79bf",
+  "ranking_version": "v1",
+  "requested_problem_ids": [
+    "p001",
+    "p002",
+    "p003"
+  ],
+  "scoring_configuration": {},
+  "scoring_version": "v1",
+  "started_at": "2026-08-19T04:47:55Z",
+  "status": "completed"
+}

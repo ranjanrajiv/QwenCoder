@@ -1,0 +1,52 @@
+dataset:
+  preference_run_id: pref_20260819_061728_849c
+distributed:
+  enabled: false
+dpo:
+  beta: 0.1
+  loss_type: sigmoid
+experiment_name: qwen-python-dpo
+lora:
+  alpha: 32
+  bias: none
+  dropout: 0.05
+  r: 16
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  task_type: CAUSAL_LM
+model:
+  name: Qwen/Qwen2.5-Coder-3B-Instruct
+  revision: null
+optimizer:
+  name: paged_adamw_8bit
+quantization:
+  bits: 4
+  compute_dtype: bfloat16
+  double_quant: true
+  enabled: true
+  quant_type: nf4
+training:
+  apply_chat_template: true
+  data_seed: 42
+  eval_steps: 50
+  eval_strategy: steps
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 1.0e-05
+  logging_steps: 1
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  max_length: 1024
+  max_prompt_length: 512
+  max_steps: 1
+  max_truncation_rate: 0.05
+  min_training_pairs: 500
+  num_train_epochs: 1
+  per_device_eval_batch_size: 1
+  per_device_train_batch_size: 1
+  save_steps: 100
+  seed: 42
+  warmup_ratio: 0.05

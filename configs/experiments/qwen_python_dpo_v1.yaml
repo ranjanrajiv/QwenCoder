@@ -1,0 +1,65 @@
+# The Stage 12 reference experiment (spec section 8), extended with the hypothesis and
+# success-criteria block spec section 58 asks every experiment to carry.
+#
+# `error_analysis` ships disabled: Stage 11 (src/python_dpo/analysis/) does not exist in
+# this codebase yet. It is fully registered in the pipeline graph with its real dependency
+# edges -- see .claude/plans/12_pipeline_orchestration_and_productionization_plan.md's
+# decision 1 -- so enabling it raises a clear "not implemented" error rather than silently
+# skipping real work. `packaging` (Phase 3 of that same plan) is implemented and enabled.
+#
+# Every value below is overridable per-invocation with `--set stage.key=value`, and the
+# whole file is overridable with `--config`; this file is the shipped default, not the
+# only experiment.
+
+experiment:
+  name: qwen-python-dpo-v1
+  seed: 42
+
+git:
+  # Fail rather than warn: an experiment result attributed to a dirty tree cannot be
+  # reproduced from the recorded git commit alone (spec section 29).
+  on_dirty: fail
+
+hypothesis:
+  description: >
+    DPO fine-tuning on the curated Python problem preference dataset improves held-out
+    pass@1 over the base Qwen2.5-Coder-3B-Instruct model without a corresponding
+    regression on problems the base model already solves.
+
+success_criteria:
+  pass_at_1_delta: 0.02
+
+problem_dataset:
+  enabled: true
+  # No problem_count: the full curated catalog (spec section 52's finding -- Stage 2 is
+  # ten hand-authored problems, not an LLM generator, so there is no larger pool to draw
+  # a subset from by default).
+
+candidate_generation:
+  enabled: true
+  candidates_per_problem: 5
+
+candidate_execution:
+  enabled: true
+
+candidate_evaluation:
+  enabled: true
+
+preference_generation:
+  enabled: true
+  policy: strict
+
+dpo_training:
+  enabled: true
+  config: configs/training/dpo_qlora.yaml
+
+model_evaluation:
+  enabled: true
+  benchmark: python_eval_v1
+  num_samples: 10
+
+error_analysis:
+  enabled: false  # Stage 11 not implemented yet
+
+packaging:
+  enabled: true

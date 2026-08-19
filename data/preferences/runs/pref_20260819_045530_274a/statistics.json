@@ -1,0 +1,35 @@
+{
+  "candidate_pairs_considered": 20,
+  "candidates_considered": 10,
+  "computed_at": "2026-08-19T04:55:31Z",
+  "duplicates": 0,
+  "indeterminate": 0,
+  "integrity_failures": 0,
+  "medium_pairs": 1,
+  "pairs_generated": 7,
+  "pairs_rejected": 13,
+  "per_problem": {
+    "p002": {
+      "pairs_considered": 10,
+      "pairs_generated": 0,
+      "pairs_rejected": 10,
+      "training_records": 0
+    },
+    "p004": {
+      "pairs_considered": 10,
+      "pairs_generated": 7,
+      "pairs_rejected": 3,
+      "training_records": 3
+    }
+  },
+  "preference_run_id": "pref_20260819_045530_274a",
+  "problems_processed": 2,
+  "prompt_mismatches": 0,
+  "rejections_by_reason": {
+    "tie": 13
+  },
+  "statistics_version": "1.0",
+  "strong_pairs": 6,
+  "ties": 13,
+  "training_records": 3
+}

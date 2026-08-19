@@ -1,0 +1,41 @@
+{
+  "candidate_run_id": "run_20260819_044600_9838",
+  "completed_at": "2026-08-19T04:47:55Z",
+  "created_at": "2026-08-19T04:47:28Z",
+  "error": null,
+  "evaluation_run_id": "eval_20260819_044728_e23d",
+  "evaluator_version": "v1",
+  "manifest_version": "1.0",
+  "pytest_version": "8.3.4",
+  "python_version": "3.12.14",
+  "requested_candidate_ids": [
+    "p001_c001",
+    "p001_c002",
+    "p002_c001",
+    "p002_c002",
+    "p003_c001",
+    "p003_c002"
+  ],
+  "requested_candidates": 6,
+  "requested_problem_id": null,
+  "sandbox_config": {
+    "cpus": 1.0,
+    "drop_capabilities": true,
+    "image": "python-dpo-evaluator:1.0",
+    "image_digest": null,
+    "image_reference": "python-dpo-evaluator:1.0",
+    "max_output_bytes": 1000000,
+    "memory": "512m",
+    "network_mode": "none",
+    "pids_limit": 64,
+    "read_only_root": true,
+    "run_as_non_root": true,
+    "startup_grace_seconds": 10,
+    "timeout_seconds": 30,
+    "tmpfs_size": "64m",
+    "user": "65534:65534"
+  },
+  "started_at": "2026-08-19T04:47:28Z",
+  "status": "completed",
+  "test_generator_version": "v1"
+}

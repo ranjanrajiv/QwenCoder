@@ -1,0 +1,52 @@
+{
+  "candidate_schema_version": "2.0",
+  "completed_at": "2026-08-19T06:07:32Z",
+  "created_at": "2026-08-19T06:05:44Z",
+  "environment": {
+    "cuda_version": "13.0",
+    "platform": "Linux-6.8.0-137-generic-x86_64",
+    "python_version": "3.12.3",
+    "torch_version": "2.13.0+cu130",
+    "transformers_version": "5.15.0"
+  },
+  "error": null,
+  "generation_config": {
+    "do_sample": true,
+    "max_new_tokens": 512,
+    "repetition_penalty": 1.0,
+    "seed": 42,
+    "temperature": 0.8,
+    "top_p": 0.95
+  },
+  "manifest_version": "1.0",
+  "model": {
+    "device": "auto",
+    "dtype": "auto",
+    "name": "Qwen/Qwen2.5-Coder-3B-Instruct",
+    "provider": "transformers",
+    "quantization": null,
+    "revision": null,
+    "trust_remote_code": false
+  },
+  "prompt_version": "v1",
+  "requested_candidates_per_problem": 4,
+  "requested_problem_ids": [
+    "p001",
+    "p002",
+    "p003"
+  ],
+  "requested_problems": 3,
+  "retry": {
+    "max_attempts": 2
+  },
+  "run_id": "run_20260819_060544_0751",
+  "source": "generate",
+  "started_at": "2026-08-19T06:05:47Z",
+  "status": "completed",
+  "strategies": [
+    "normal",
+    "straightforward",
+    "edge_case_focused",
+    "alternative"
+  ]
+}

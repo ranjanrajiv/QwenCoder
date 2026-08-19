@@ -1,0 +1,83 @@
+{
+  "cost": {
+    "gpu_hours": 0.1339,
+    "gpu_hours_by_stage": {
+      "candidate_generation": 0.0728,
+      "dpo_training": 0.0236,
+      "model_evaluation": 0.0308,
+      "packaging": 0.0067
+    },
+    "llm_api": {
+      "providers": []
+    }
+  },
+  "end_time": "2026-08-19T06:21:13Z",
+  "experiment_name": "qwen-python-dpo-smoke",
+  "experiment_run_id": "exp_20260819_060948_f72e",
+  "git_commit": {
+    "branch": "main",
+    "dirty": true,
+    "sha": "95281b130a2ab97a87a92ed584ce66aca55e4ce7"
+  },
+  "resources": {
+    "cpu_percent": 21.5,
+    "gpu_memory_total_bytes": 12884901888,
+    "gpu_memory_used_bytes": 425721856,
+    "gpu_name": "NVIDIA GeForce RTX 3060",
+    "gpu_utilization_percent": 15.0,
+    "ram_total_bytes": 16505479168,
+    "ram_used_bytes": 5617393664
+  },
+  "stages": {
+    "candidate_evaluation": {
+      "duration_seconds": 6.0,
+      "reused": false,
+      "stage_run_id": "rank_20260819_061722_9de4",
+      "status": "COMPLETED"
+    },
+    "candidate_execution": {
+      "duration_seconds": 187.0,
+      "reused": false,
+      "stage_run_id": "eval_20260819_061432_5204",
+      "status": "COMPLETED"
+    },
+    "candidate_generation": {
+      "duration_seconds": 262.0,
+      "reused": false,
+      "stage_run_id": "run_20260819_060953_1cba",
+      "status": "COMPLETED"
+    },
+    "dpo_training": {
+      "duration_seconds": 85.0,
+      "reused": false,
+      "stage_run_id": "dpo_20260819_061731_8314",
+      "status": "COMPLETED"
+    },
+    "model_evaluation": {
+      "duration_seconds": 111.0,
+      "reused": false,
+      "stage_run_id": "eval_20260819_061857_114a",
+      "status": "COMPLETED"
+    },
+    "packaging": {
+      "duration_seconds": 24.0,
+      "reused": false,
+      "stage_run_id": "exp_20260819_060948_f72e_packaging",
+      "status": "COMPLETED"
+    },
+    "preference_generation": {
+      "duration_seconds": 3.0,
+      "reused": false,
+      "stage_run_id": "pref_20260819_061728_849c",
+      "status": "COMPLETED"
+    },
+    "problem_dataset": {
+      "duration_seconds": 0.0,
+      "reused": false,
+      "stage_run_id": "exp_20260819_060948_f72e_problem_dataset",
+      "status": "COMPLETED"
+    }
+  },
+  "start_time": "2026-08-19T06:09:52Z",
+  "status": "completed"
+}

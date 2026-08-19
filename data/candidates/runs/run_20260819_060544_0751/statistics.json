@@ -1,0 +1,22 @@
+{
+  "candidates_by_strategy": {
+    "alternative": 3,
+    "edge_case_focused": 3,
+    "normal": 3,
+    "straightforward": 3
+  },
+  "candidates_generated": 12,
+  "candidates_requested": 12,
+  "computed_at": "2026-08-19T06:07:32Z",
+  "duplicates": 8,
+  "failures_by_error_type": {},
+  "function_name_valid": 12,
+  "generation_failures": 0,
+  "problems_completed": 3,
+  "problems_requested": 3,
+  "retry_attempts": 0,
+  "run_id": "run_20260819_060544_0751",
+  "statistics_version": "1.0",
+  "syntax_invalid": 0,
+  "syntax_valid": 12
+}

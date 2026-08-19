@@ -1,0 +1,18 @@
+{
+  "candidates_evaluated": 10,
+  "candidates_requested": 10,
+  "computed_at": "2026-08-19T05:00:30Z",
+  "evaluation_failures": 0,
+  "evaluation_run_id": "eval_20260819_045946_7b8f",
+  "failed": 7,
+  "infrastructure_errors": 0,
+  "passed": 3,
+  "statistics_version": "1.0",
+  "syntax_errors": 0,
+  "tests_errors": 0,
+  "tests_failed": 24,
+  "tests_passed": 51,
+  "tests_skipped": 0,
+  "tests_total": 75,
+  "timeouts": 0
+}

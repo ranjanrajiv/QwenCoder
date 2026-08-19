@@ -1,0 +1,30 @@
+2026-08-19 11:48:58,321 | INFO | python_dpo.pipeline.stages.model_evaluation | Generating with the base model...
+2026-08-19 11:49:05,703 | INFO | python_dpo.model_evaluation.runners | Base runner loaded: Qwen/Qwen2.5-Coder-3B-Instruct
+2026-08-19 11:49:08,312 | INFO | python_dpo.model_evaluation.generation | p001 | base sample 0 | generated
+2026-08-19 11:49:10,887 | INFO | python_dpo.model_evaluation.generation | p001 | base sample 1 | generated
+2026-08-19 11:49:19,488 | INFO | python_dpo.model_evaluation.generation | p002 | base sample 0 | generated
+2026-08-19 11:49:28,121 | INFO | python_dpo.model_evaluation.generation | p002 | base sample 1 | generated
+2026-08-19 11:49:28,224 | INFO | python_dpo.pipeline.stages.model_evaluation | Evaluating base candidates through the sandbox...
+2026-08-19 11:49:28,228 | INFO | python_dpo.evaluation | Evaluating p001_c001 against p001 (7 test case(s))
+2026-08-19 11:49:34,110 | INFO | python_dpo.evaluation | p001_c001 | passed | 7/7 tests passed
+2026-08-19 11:49:34,146 | INFO | python_dpo.evaluation | Evaluating p001_c002 against p001 (7 test case(s))
+2026-08-19 11:49:38,088 | INFO | python_dpo.evaluation | p001_c002 | passed | 7/7 tests passed
+2026-08-19 11:49:38,125 | INFO | python_dpo.evaluation | Evaluating p002_c001 against p002 (7 test case(s))
+2026-08-19 11:49:42,066 | INFO | python_dpo.evaluation | p002_c001 | failed | 3/7 tests passed
+2026-08-19 11:49:42,111 | INFO | python_dpo.evaluation | Evaluating p002_c002 against p002 (7 test case(s))
+2026-08-19 11:49:46,212 | INFO | python_dpo.evaluation | p002_c002 | failed | 3/7 tests passed
+2026-08-19 11:49:46,246 | INFO | python_dpo.pipeline.stages.model_evaluation | Generating with the dpo model...
+2026-08-19 11:49:54,040 | INFO | python_dpo.model_evaluation.runners | Adapter runner loaded: Qwen/Qwen2.5-Coder-3B-Instruct + /home/rajiv/QwenCoder/QwenCoder/data/training/runs/dpo_20260819_061731_8314/adapter
+2026-08-19 11:49:58,416 | INFO | python_dpo.model_evaluation.generation | p001 | dpo sample 0 | generated
+2026-08-19 11:50:02,750 | INFO | python_dpo.model_evaluation.generation | p001 | dpo sample 1 | generated
+2026-08-19 11:50:17,442 | INFO | python_dpo.model_evaluation.generation | p002 | dpo sample 0 | generated
+2026-08-19 11:50:31,993 | INFO | python_dpo.model_evaluation.generation | p002 | dpo sample 1 | generated
+2026-08-19 11:50:32,093 | INFO | python_dpo.pipeline.stages.model_evaluation | Evaluating dpo candidates through the sandbox...
+2026-08-19 11:50:32,097 | INFO | python_dpo.evaluation | Evaluating p001_c001 against p001 (7 test case(s))
+2026-08-19 11:50:36,022 | INFO | python_dpo.evaluation | p001_c001 | passed | 7/7 tests passed
+2026-08-19 11:50:36,059 | INFO | python_dpo.evaluation | Evaluating p001_c002 against p001 (7 test case(s))
+2026-08-19 11:50:40,135 | INFO | python_dpo.evaluation | p001_c002 | passed | 7/7 tests passed
+2026-08-19 11:50:40,171 | INFO | python_dpo.evaluation | Evaluating p002_c001 against p002 (7 test case(s))
+2026-08-19 11:50:44,216 | INFO | python_dpo.evaluation | p002_c001 | failed | 3/7 tests passed
+2026-08-19 11:50:44,261 | INFO | python_dpo.evaluation | Evaluating p002_c002 against p002 (7 test case(s))
+2026-08-19 11:50:48,495 | INFO | python_dpo.evaluation | p002_c002 | failed | 3/7 tests passed

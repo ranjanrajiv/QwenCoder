@@ -127,6 +127,23 @@ class QwenModelClient:
     def loaded(self) -> bool:
         return self._model is not None
 
+    def unload(self) -> None:
+        """Free GPU memory before another model loads in the same process.
+
+        Never called from within this class -- ``generate()`` is designed to be called
+        repeatedly across many candidates without reloading. Callers that run several
+        model-loading stages back to back in one process (the Stage 12 orchestrator)
+        must call this explicitly once they are done with this client, matching the
+        pattern already used by :class:`~python_dpo.model_evaluation.runners.BaseModelRunner`
+        and :class:`~python_dpo.model_evaluation.runners.AdapterModelRunner`.
+        """
+        if self._model is not None:
+            del self._model
+            self._model = None
+        self._tokenizer = None
+        if self._torch is not None and self._torch.cuda.is_available():
+            self._torch.cuda.empty_cache()
+
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return

@@ -1,0 +1,24 @@
+{
+  "cache_key": "7f1ad28f4de802d86568fb7acb759eb0ea061eb0a4b8a5efddbcae0f034901b0",
+  "code_version": "0.10.0",
+  "configuration_hash": "3495512dd4d6c9cb08a0f290f6979549cf60d3dec4b25b38409388430ae87295",
+  "end_time": "2026-08-19T04:45:07Z",
+  "error": {
+    "error_type": "StageFailedError",
+    "input_artifacts": {},
+    "message": "the training split is empty; there is nothing to train on",
+    "stack_trace": null,
+    "stage": "dpo_training",
+    "timestamp": "2026-08-19T04:45:07Z"
+  },
+  "input_artifacts": {
+    "preferences": "3f39a20eb76a1c3df6e871d321dfa875c8ce00deda93dd9155e47b2e66e86877"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "dpo_training",
+  "stage_run_id": "exp_20260819_044426_e28d_dpo_training",
+  "start_time": "2026-08-19T04:45:07Z",
+  "status": "FAILED"
+}

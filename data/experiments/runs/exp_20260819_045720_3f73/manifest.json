@@ -1,0 +1,20 @@
+{
+  "configuration_hash": "f70d2cd078a398d67b2f9ac7a216780f5279464522176e25d34a96e006b471ad",
+  "dataset_versions": {},
+  "end_time": "2026-08-19T05:05:36Z",
+  "experiment_name": "qwen-python-dpo-smoke",
+  "experiment_run_id": "exp_20260819_045720_3f73",
+  "final_evaluation": null,
+  "final_model": null,
+  "git_commit": {
+    "branch": "main",
+    "dirty": true,
+    "sha": "95281b130a2ab97a87a92ed584ce66aca55e4ce7"
+  },
+  "manifest_version": "experiment_manifest_v1",
+  "model_versions": {},
+  "recommendation": null,
+  "stage_runs": {},
+  "start_time": "2026-08-19T05:05:35Z",
+  "status": "failed"
+}

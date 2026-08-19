@@ -39,6 +39,7 @@ def test_config_loads_real_config_yaml():
         config.paths.preferences,
         config.paths.training,
         config.paths.model_evaluations,
+        config.paths.experiments,
         config.paths.reports,
     ):
         assert path.is_absolute()
@@ -69,6 +70,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         preferences=tmp_path / "preferences",
         training=tmp_path / "training",
         model_evaluations=tmp_path / "model_evaluations",
+        experiments=tmp_path / "experiments",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()
@@ -81,6 +83,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         paths.preferences,
         paths.training,
         paths.model_evaluations,
+        paths.experiments,
         paths.reports,
     ):
         assert path.is_dir()
@@ -96,6 +99,7 @@ def test_real_data_directories_exist():
         "preferences",
         "training",
         "model_evaluations",
+        "experiments",
         "reports",
     ):
         assert (PROJECT_ROOT / "data" / name).is_dir()
@@ -125,15 +129,36 @@ def test_cli_version_exits_zero_and_prints_version():
     assert python_dpo.__version__ in result.stdout
 
 
-@pytest.mark.parametrize("command", sorted(_PLACEHOLDER_STAGES))
-def test_placeholder_subcommands_parse_and_return_nonzero(command):
-    parser = build_parser()
-    args = parser.parse_args([command])
-    assert args.func(args, Config.load()) != 0
+def test_no_placeholder_stages_remain():
+    # Stage 12 was the last stage with a placeholder ("run", a full pipeline run, now
+    # implemented as `experiment run`); nothing should ever populate this dict again.
+    assert _PLACEHOLDER_STAGES == {}
 
 
 def test_problems_is_no_longer_a_placeholder():
     assert "problems" not in _PLACEHOLDER_STAGES
+
+
+def test_run_is_no_longer_a_placeholder():
+    assert "run" not in _PLACEHOLDER_STAGES
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["experiment", "preflight"],
+        ["experiment", "graph"],
+        ["experiment", "run"],
+        ["experiment", "resume", "--experiment-run-id", "exp_x"],
+        ["experiment", "retry", "--experiment-run-id", "exp_x", "--stage", "dpo_training"],
+        ["experiment", "status", "--experiment-run-id", "exp_x"],
+        ["experiment", "list"],
+    ],
+)
+def test_experiment_subcommands_are_wired(args):
+    parser = build_parser()
+    parsed = parser.parse_args(args)
+    assert callable(parsed.func)
 
 
 @pytest.mark.parametrize("subcommand", ["build", "validate"])

@@ -1,0 +1,15 @@
+{
+  "cache_key": null,
+  "code_version": "0.12.0",
+  "configuration_hash": null,
+  "end_time": null,
+  "error": null,
+  "input_artifacts": {},
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "packaging",
+  "stage_run_id": "exp_20260819_060240_57f0_packaging",
+  "start_time": null,
+  "status": "BLOCKED"
+}

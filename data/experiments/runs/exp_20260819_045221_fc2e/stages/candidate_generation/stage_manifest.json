@@ -1,0 +1,19 @@
+{
+  "cache_key": "9718a969c4ab2906675c4d92564b11ca202651e4011e715038f23860f0eb0f89",
+  "code_version": "0.10.0",
+  "configuration_hash": "4e4b8d1d6edf9f612bfb5fbeca9acdefd03173933d9c6e76810d6a0fa7042e50",
+  "end_time": "2026-08-19T04:54:36Z",
+  "error": null,
+  "input_artifacts": {
+    "problem_dataset": "c79836f64eb2cf190d27bced2b63361762dfb60f434905f01fdb360db93652d6"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {
+    "candidates": "a2add51da3d9da9fbbf2cd9b789dd130e22ac982bf8901cb2499dddad408a0c6"
+  },
+  "reused": false,
+  "stage_name": "candidate_generation",
+  "stage_run_id": "run_20260819_045228_77e6",
+  "start_time": "2026-08-19T04:52:28Z",
+  "status": "COMPLETED"
+}

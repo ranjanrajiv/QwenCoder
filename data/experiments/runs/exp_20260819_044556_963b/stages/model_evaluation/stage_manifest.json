@@ -1,0 +1,15 @@
+{
+  "cache_key": null,
+  "code_version": "0.10.0",
+  "configuration_hash": null,
+  "end_time": null,
+  "error": null,
+  "input_artifacts": {},
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "model_evaluation",
+  "stage_run_id": "exp_20260819_044556_963b_model_evaluation",
+  "start_time": null,
+  "status": "BLOCKED"
+}

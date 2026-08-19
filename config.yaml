@@ -10,6 +10,7 @@ paths:
   preferences: data/preferences
   training: data/training
   model_evaluations: data/model_evaluations
+  experiments: data/experiments
   reports: data/reports
 
 logging:

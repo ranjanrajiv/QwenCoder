@@ -170,9 +170,7 @@ from .sandbox import (
 
 logger = logging.getLogger("python_dpo.cli")
 
-_PLACEHOLDER_STAGES = {
-    "run": "Full pipeline run",
-}
+_PLACEHOLDER_STAGES: dict[str, str] = {}
 
 
 def _make_placeholder_handler(name: str):
@@ -3531,6 +3529,612 @@ def _add_sandbox_parser(subparsers: argparse._SubParsersAction) -> None:
     run_parser.set_defaults(func=_cmd_sandbox_run)
 
 
+# ----------------------------------------------------------------------------- experiment
+
+
+def _load_experiment_pipeline_config(args: argparse.Namespace):
+    """Load an experiment YAML with CLI overrides applied (spec 12 sections 8, 9, 24)."""
+    from .pipeline.config import ExperimentConfig
+    from .pipeline.errors import ExperimentConfigError
+
+    default_path = Path("configs/experiments/qwen_python_dpo_v1.yaml")
+    path = Path(args.config) if getattr(args, "config", None) else default_path
+    try:
+        return ExperimentConfig.load(
+            path,
+            overrides=getattr(args, "set", None) or (),
+            smoke_test=getattr(args, "smoke_test", False),
+        )
+    except ExperimentConfigError as exc:
+        logger.error("%s", exc)
+        return None
+
+
+def _cmd_experiment_preflight(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.preflight import format_preflight_report, run_preflight
+
+    experiment = _load_experiment_pipeline_config(args)
+    if experiment is None:
+        return 1
+    report = run_preflight(config, experiment)
+    sys.stdout.write(format_preflight_report(report))
+    return 0 if report.passed else 1
+
+
+def _cmd_experiment_graph(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.orchestrator import PipelineOrchestrator
+
+    experiment = _load_experiment_pipeline_config(args)
+    if experiment is None:
+        return 1
+    orchestrator = PipelineOrchestrator(config)
+    order = orchestrator.enabled_order(experiment)
+    lines = [f"Experiment:\n    {experiment.name}\n", "Stages:\n"]
+    for index, name in enumerate(order, start=1):
+        lines.append(f"    [{index}] {name.replace('_', ' ').title()}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_experiment_run(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.errors import PipelineError
+    from .pipeline.orchestrator import PipelineOrchestrator
+
+    experiment = _load_experiment_pipeline_config(args)
+    if experiment is None:
+        return 1
+
+    orchestrator = PipelineOrchestrator(config)
+
+    if args.dry_run:
+        order = orchestrator.enabled_order(experiment)
+        lines = [f"Experiment:\n    {experiment.name}\n", "Stages:\n"]
+        for index, name in enumerate(order, start=1):
+            lines.append(f"    [{index}] {name.replace('_', ' ').title()}")
+        sys.stdout.write("\n".join(lines) + "\n")
+        return 0
+
+    try:
+        manifest = orchestrator.run(experiment, force=args.force)
+    except PipelineError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"Experiment {manifest.experiment_run_id} {manifest.status}.\n")
+    return 0 if manifest.status == "completed" else 1
+
+
+def _cmd_experiment_resume(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.errors import PipelineError
+    from .pipeline.orchestrator import PipelineOrchestrator
+
+    orchestrator = PipelineOrchestrator(config)
+    try:
+        manifest = orchestrator.run(resume_run_id=args.experiment_run_id)
+    except PipelineError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"Experiment {manifest.experiment_run_id} {manifest.status}.\n")
+    return 0 if manifest.status == "completed" else 1
+
+
+def _cmd_experiment_retry(args: argparse.Namespace, config: Config) -> int:
+    """Retry one failed/invalid stage of an experiment (spec section 21) -- implemented
+    as `--force <stage>` on top of a resume, since force is exactly "invalidate this
+    stage and everything downstream, then continue"."""
+    from .pipeline.errors import PipelineError
+    from .pipeline.orchestrator import PipelineOrchestrator
+
+    orchestrator = PipelineOrchestrator(config)
+    try:
+        manifest = orchestrator.run(resume_run_id=args.experiment_run_id, force=args.stage)
+    except PipelineError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"Experiment {manifest.experiment_run_id} {manifest.status}.\n")
+    return 0 if manifest.status == "completed" else 1
+
+
+def _cmd_experiment_status(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.errors import ExperimentRunNotFoundError
+    from .pipeline.repository import ExperimentRunRepository
+    from .pipeline.stages import STAGE_NAMES
+
+    repo = ExperimentRunRepository(config.paths.experiments / "runs")
+    try:
+        manifest = repo.get_run(args.experiment_run_id)
+    except ExperimentRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    lines = [f"Experiment {manifest.experiment_run_id} ({manifest.status})\n"]
+    for name in STAGE_NAMES:
+        stage_manifest = repo.read_stage_manifest(manifest.experiment_run_id, name)
+        status = stage_manifest.status if stage_manifest is not None else "PENDING"
+        label = name.replace("_", " ").title()
+        lines.append(f"{label:<25} {status}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_experiment_list(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.repository import ExperimentRunRepository
+
+    repo = ExperimentRunRepository(config.paths.experiments / "runs")
+    runs = repo.list_runs()
+    if not runs:
+        sys.stdout.write("No experiment runs.\n")
+        return 0
+    for manifest in runs:
+        sys.stdout.write(f"{manifest.experiment_run_id}  {manifest.status:<12}  {manifest.experiment_name}\n")
+    return 0
+
+
+def _cmd_experiment_archive(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.archive import archive_experiment
+    from .pipeline.errors import ArchiveError
+    from .pipeline.repository import ExperimentRunRepository
+
+    repo = ExperimentRunRepository(config.paths.experiments / "runs")
+    dest_dir = Path(args.out) if args.out else config.paths.experiments / "archives"
+    try:
+        archive_path = archive_experiment(repo, args.experiment_run_id, dest_dir)
+    except ArchiveError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"{archive_path}\n")
+    return 0
+
+
+def _cmd_experiment_inspect(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.archive import inspect_archive
+    from .pipeline.errors import ArchiveError
+
+    try:
+        manifest = inspect_archive(Path(args.archive))
+    except ArchiveError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(
+        f"Experiment {manifest.experiment_run_id}\n"
+        f"  Archived:   {manifest.created_at}\n"
+        f"  Files:      {manifest.file_count}\n"
+        f"  Total size: {manifest.total_bytes} byte(s)\n"
+    )
+    return 0
+
+
+def _cmd_experiment_reproduce(args: argparse.Namespace, config: Config) -> int:
+    from .pipeline.errors import ExperimentRunNotFoundError
+    from .pipeline.reproduce import (
+        format_reproducibility_report,
+        render_reproduce_commands,
+        verify_reproducibility,
+    )
+    from .pipeline.repository import ExperimentRunRepository
+
+    repo = ExperimentRunRepository(config.paths.experiments / "runs")
+    try:
+        repo.get_run(args.experiment_run_id)
+    except ExperimentRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    if args.verify_only:
+        report = verify_reproducibility(
+            repo, args.experiment_run_id, config,
+            config_path=Path(args.config) if args.config else None,
+        )
+        sys.stdout.write(format_reproducibility_report(report))
+        return 0 if report.reproducible else 1
+
+    resolved_config_path = repo.run_dir(args.experiment_run_id) / "resolved_config.yaml"
+    sys.stdout.write(render_reproduce_commands(args.experiment_run_id, resolved_config_path))
+    return 0
+
+
+def _add_experiment_parser(subparsers: argparse._SubParsersAction) -> None:
+    experiment_parser = subparsers.add_parser(
+        "experiment",
+        help="Run and inspect end-to-end pipeline experiments.",
+        description=(
+            "Resolve an experiment configuration, validate its dependencies, and execute "
+            "every enabled pipeline stage in order -- with per-stage state, a cache that "
+            "reuses compatible prior work, resumable and retryable failures, and a "
+            "complete experiment manifest at the end."
+        ),
+    )
+    experiment_parser.set_defaults(func=_make_help_handler(experiment_parser))
+    experiment_subparsers = experiment_parser.add_subparsers(dest="experiment_command")
+
+    def _add_config_args(sub: argparse.ArgumentParser) -> None:
+        sub.add_argument(
+            "--config",
+            default=None,
+            help="Experiment configuration YAML (default: configs/experiments/qwen_python_dpo_v1.yaml).",
+        )
+        sub.add_argument(
+            "--set",
+            dest="set",
+            action="append",
+            default=None,
+            metavar="KEY.PATH=VALUE",
+            help="Override one resolved config value, e.g. dpo_training.beta=0.2. Repeatable.",
+        )
+        sub.add_argument("--smoke-test", action="store_true", dest="smoke_test")
+
+    preflight_parser = experiment_subparsers.add_parser(
+        "preflight", help="Validate GPU, Docker, model, dataset, benchmark and configs before running."
+    )
+    _add_config_args(preflight_parser)
+    preflight_parser.set_defaults(func=_cmd_experiment_preflight)
+
+    graph_parser = experiment_subparsers.add_parser(
+        "graph", help="Print the enabled stage sequence without running anything."
+    )
+    _add_config_args(graph_parser)
+    graph_parser.set_defaults(func=_cmd_experiment_graph)
+
+    run_parser = experiment_subparsers.add_parser("run", help="Execute an experiment end to end.")
+    _add_config_args(run_parser)
+    run_parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Print the stages that would run; execute nothing.",
+    )
+    run_parser.add_argument(
+        "--force", default=None, metavar="STAGE",
+        help="Invalidate this stage and every stage that depends on it, then rerun them.",
+    )
+    run_parser.set_defaults(func=_cmd_experiment_run)
+
+    resume_parser = experiment_subparsers.add_parser(
+        "resume", help="Resume an interrupted or failed experiment run."
+    )
+    resume_parser.add_argument("--experiment-run-id", required=True, dest="experiment_run_id")
+    resume_parser.set_defaults(func=_cmd_experiment_resume)
+
+    retry_parser = experiment_subparsers.add_parser(
+        "retry", help="Retry one stage of an experiment run (and everything downstream of it)."
+    )
+    retry_parser.add_argument("--experiment-run-id", required=True, dest="experiment_run_id")
+    retry_parser.add_argument("--stage", required=True)
+    retry_parser.set_defaults(func=_cmd_experiment_retry)
+
+    status_parser = experiment_subparsers.add_parser("status", help="Show every stage's status.")
+    status_parser.add_argument("--experiment-run-id", required=True, dest="experiment_run_id")
+    status_parser.set_defaults(func=_cmd_experiment_status)
+
+    list_parser = experiment_subparsers.add_parser("list", help="List experiment runs.")
+    list_parser.set_defaults(func=_cmd_experiment_list)
+
+    archive_parser = experiment_subparsers.add_parser(
+        "archive", help="Tar and gzip an experiment run directory."
+    )
+    archive_parser.add_argument("--experiment-run-id", required=True, dest="experiment_run_id")
+    archive_parser.add_argument(
+        "--out", default=None, help="Destination directory (default: <experiments>/archives)."
+    )
+    archive_parser.set_defaults(func=_cmd_experiment_archive)
+
+    inspect_parser = experiment_subparsers.add_parser(
+        "inspect", help="Show an archive's contents without extracting it."
+    )
+    inspect_parser.add_argument("--archive", required=True, help="Path to a .tar.gz archive.")
+    inspect_parser.set_defaults(func=_cmd_experiment_inspect)
+
+    reproduce_parser = experiment_subparsers.add_parser(
+        "reproduce", help="Print the command to recreate an experiment, or verify it with --verify-only."
+    )
+    reproduce_parser.add_argument("--experiment-run-id", required=True, dest="experiment_run_id")
+    reproduce_parser.add_argument(
+        "--verify-only", action="store_true", dest="verify_only",
+        help="Diff the recorded model, dataset hash, config hash and environment instead of printing a command.",
+    )
+    reproduce_parser.add_argument(
+        "--config", default=None,
+        help="Current experiment config YAML to recompute the config hash against (only used with --verify-only).",
+    )
+    reproduce_parser.set_defaults(func=_cmd_experiment_reproduce)
+
+
+# ----------------------------------------------------------------------------------- model
+
+
+def _cmd_model_package(args: argparse.Namespace, config: Config) -> int:
+    from .evaluation.pytest_runner import build_evaluation_sandbox_config
+    from .packaging.errors import PackagingError, VerificationError
+    from .packaging.pipeline_stage import package_and_verify
+    from .packaging.registry import ModelRegistry
+
+    model_id = args.model_id or args.training_run_id
+    dest_dir = Path(args.out) if args.out else config.project_root / "models" / "packages" / model_id
+    training_run_repo = _training_run_repository(config)
+    sandbox_config = build_evaluation_sandbox_config(config.sandbox, config.evaluation)
+    registry = ModelRegistry(config.project_root / "models" / "registry.json")
+
+    try:
+        result = package_and_verify(
+            model_id=model_id,
+            training_run_id=args.training_run_id,
+            training_run_repo=training_run_repo,
+            dest_dir=dest_dir,
+            verification_dir=dest_dir / "_verification",
+            sandbox_config=sandbox_config,
+            registry=registry,
+        )
+    except (PackagingError, VerificationError) as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(
+        f"Packaged {args.training_run_id} as {model_id!r} at {dest_dir} "
+        f"({result.registry_entry.status}).\n"
+    )
+    return 0
+
+
+def _cmd_model_generate(args: argparse.Namespace, config: Config) -> int:
+    from .packaging.errors import PackagingError
+    from .packaging.inference import generate
+    from .packaging.package import ModelPackage
+
+    try:
+        package = ModelPackage.load(Path(args.model_package))
+    except PackagingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    config_path = Path(args.config) if args.config else EVAL_DEFAULT_CONFIG_PATH
+    try:
+        experiment = EvaluationExperimentConfig.load(config_path)
+    except ModelEvaluationConfigError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    text = generate(
+        package, args.prompt,
+        quantization=experiment.quantization, generation=experiment.generation, seed=args.seed,
+    )
+    sys.stdout.write(text + "\n")
+    return 0
+
+
+def _cmd_model_generate_batch(args: argparse.Namespace, config: Config) -> int:
+    from .packaging.errors import PackagingError
+    from .packaging.inference import generate_batch
+    from .packaging.package import ModelPackage
+
+    try:
+        package = ModelPackage.load(Path(args.model_package))
+    except PackagingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    config_path = Path(args.config) if args.config else EVAL_DEFAULT_CONFIG_PATH
+    try:
+        experiment = EvaluationExperimentConfig.load(config_path)
+    except ModelEvaluationConfigError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    count = generate_batch(
+        package, Path(args.input), Path(args.output),
+        quantization=experiment.quantization, generation=experiment.generation, seed=args.seed,
+    )
+    sys.stdout.write(f"Generated {count} response(s) -> {args.output}\n")
+    return 0
+
+
+def _cmd_model_evaluate(args: argparse.Namespace, config: Config) -> int:
+    """Delegates straight to Stage 10's own ``evaluate-model`` flow (spec section 41):
+    a package names exactly one training run, so evaluating "the package" and evaluating
+    "the training run it came from" are the same operation -- reusing it rather than
+    re-implementing benchmark generation and sandbox evaluation a second time."""
+    from .packaging.errors import PackagingError
+    from .packaging.package import ModelPackage
+
+    try:
+        package = ModelPackage.load(Path(args.model_package))
+    except PackagingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    delegated = argparse.Namespace(
+        config=args.config,
+        num_samples=args.num_samples,
+        benchmark=args.benchmark,
+        smoke_test=args.smoke_test,
+        limit=args.limit,
+        training_run_id=package.training_run_id,
+        model=args.model,
+    )
+    return _cmd_evaluate_model_run(delegated, config)
+
+
+def _cmd_model_compare(args: argparse.Namespace, config: Config) -> int:
+    from .packaging.compare import compare_models
+    from .packaging.registry import ModelRegistry
+
+    registry = ModelRegistry(config.project_root / "models" / "registry.json")
+    rows = compare_models(registry, _model_evaluation_run_repository(config))
+    if not rows:
+        sys.stdout.write("No packaged models.\n")
+        return 0
+    for row in rows:
+        sys.stdout.write(
+            f"{row.model_id:<30} {row.status:<12} "
+            f"pass@1={row.pass_at_1} pass@5={row.pass_at_5} pass@10={row.pass_at_10} "
+            f"syntax={row.syntax_success_rate} timeout={row.timeout_rate}\n"
+        )
+    return 0
+
+
+def _cmd_model_merge(args: argparse.Namespace, config: Config) -> int:
+    from .packaging.errors import MergeUnsupportedError, PackagingError
+    from .packaging.merge import merge_adapter
+    from .packaging.package import ModelPackage
+
+    try:
+        package = ModelPackage.load(Path(args.model_package))
+    except PackagingError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    try:
+        dest = merge_adapter(package, Path(args.out), compute_dtype=args.compute_dtype)
+    except MergeUnsupportedError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"Merged model written to {dest}\n")
+    return 0
+
+
+def _cmd_model_promote(args: argparse.Namespace, config: Config) -> int:
+    from .atomic_io import read_json
+    from .packaging.errors import RegistryError
+    from .packaging.registry import ModelRegistry
+
+    registry = ModelRegistry(config.project_root / "models" / "registry.json")
+
+    success_criteria_passed = False
+    if args.status == "RECOMMENDED":
+        if not args.evaluation_run_id:
+            logger.error("--evaluation-run-id is required to promote to RECOMMENDED")
+            return 1
+        report_path = (
+            _model_evaluation_run_repository(config).reports_dir(args.evaluation_run_id)
+            / "base_vs_dpo.json"
+        )
+        if not report_path.is_file():
+            logger.error(
+                "no base_vs_dpo.json report for evaluation run %r; run 'evaluate-model report' "
+                "first", args.evaluation_run_id,
+            )
+            return 1
+        report = read_json(report_path)
+        success_criteria_passed = bool((report.get("success") or {}).get("DPO_SUCCESS", False))
+
+    try:
+        entry = registry.promote(
+            args.model_id, args.status,
+            evaluation_run_id=args.evaluation_run_id,
+            success_criteria_passed=success_criteria_passed,
+            notes=args.notes,
+        )
+    except RegistryError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    sys.stdout.write(f"{args.model_id} -> {entry.status}\n")
+    return 0
+
+
+def _cmd_model_list(args: argparse.Namespace, config: Config) -> int:
+    from .packaging.registry import ModelRegistry
+
+    registry = ModelRegistry(config.project_root / "models" / "registry.json")
+    entries = registry.list()
+    if not entries:
+        sys.stdout.write("No packaged models.\n")
+        return 0
+    for entry in entries:
+        sys.stdout.write(f"{entry.model_id}  {entry.status:<12}  {entry.base_model_name}\n")
+    return 0
+
+
+def _add_model_parser(subparsers: argparse._SubParsersAction) -> None:
+    from .packaging.registry import STATUSES as _REGISTRY_STATUSES
+
+    model_parser = subparsers.add_parser(
+        "model",
+        help="Package, verify, run inference on, and manage trained models.",
+        description=(
+            "Assemble a trained adapter into a loadable package, verify it by generating "
+            "and sandbox-executing Python, register it, run inference, compare registered "
+            "models, and (never automatically) promote one."
+        ),
+    )
+    model_parser.set_defaults(func=_make_help_handler(model_parser))
+    model_subparsers = model_parser.add_subparsers(dest="model_command")
+
+    package_parser = model_subparsers.add_parser(
+        "package", help="Package and verify a training run's adapter."
+    )
+    package_parser.add_argument("--training-run-id", required=True, dest="training_run_id")
+    package_parser.add_argument(
+        "--model-id", default=None, dest="model_id",
+        help="Registry id (default: the training run id).",
+    )
+    package_parser.add_argument(
+        "--out", default=None, help="Destination directory (default: models/packages/<model-id>)."
+    )
+    package_parser.set_defaults(func=_cmd_model_package)
+
+    generate_parser = model_subparsers.add_parser(
+        "generate", help="Generate one response from a packaged model."
+    )
+    generate_parser.add_argument("--model-package", required=True, dest="model_package")
+    generate_parser.add_argument("--prompt", required=True)
+    generate_parser.add_argument("--seed", type=int, default=42)
+    generate_parser.add_argument(
+        "--config", default=None,
+        help=f"Evaluation config YAML for decoding/quantization settings (default: {EVAL_DEFAULT_CONFIG_PATH}).",
+    )
+    generate_parser.set_defaults(func=_cmd_model_generate)
+
+    generate_batch_parser = model_subparsers.add_parser(
+        "generate-batch", help="Generate a response for every prompt in a JSONL file."
+    )
+    generate_batch_parser.add_argument("--model-package", required=True, dest="model_package")
+    generate_batch_parser.add_argument("--input", required=True)
+    generate_batch_parser.add_argument("--output", required=True)
+    generate_batch_parser.add_argument("--seed", type=int, default=42)
+    generate_batch_parser.add_argument("--config", default=None)
+    generate_batch_parser.set_defaults(func=_cmd_model_generate_batch)
+
+    evaluate_parser = model_subparsers.add_parser(
+        "evaluate", help="Run Stage 10 evaluation for a packaged model's training run."
+    )
+    evaluate_parser.add_argument("--model-package", required=True, dest="model_package")
+    evaluate_parser.add_argument("--benchmark", default=None)
+    evaluate_parser.add_argument("--model", choices=("base", "dpo", "both"), default="both")
+    evaluate_parser.add_argument("--num-samples", type=int, default=None, dest="num_samples")
+    evaluate_parser.add_argument("--limit", type=int, default=None)
+    evaluate_parser.add_argument("--smoke-test", action="store_true", dest="smoke_test")
+    evaluate_parser.add_argument("--config", default=None)
+    evaluate_parser.set_defaults(func=_cmd_model_evaluate)
+
+    compare_parser = model_subparsers.add_parser(
+        "compare", help="Compare registered models' recorded evaluation metrics."
+    )
+    compare_parser.set_defaults(func=_cmd_model_compare)
+
+    merge_parser = model_subparsers.add_parser(
+        "merge", help="Merge a packaged adapter into full-precision base weights."
+    )
+    merge_parser.add_argument("--model-package", required=True, dest="model_package")
+    merge_parser.add_argument("--out", required=True)
+    merge_parser.add_argument("--compute-dtype", default="bfloat16", dest="compute_dtype")
+    merge_parser.set_defaults(func=_cmd_model_merge)
+
+    promote_parser = model_subparsers.add_parser(
+        "promote", help="Change a registered model's status (never automatic)."
+    )
+    promote_parser.add_argument("--model-id", required=True, dest="model_id")
+    promote_parser.add_argument("--status", required=True, choices=sorted(_REGISTRY_STATUSES))
+    promote_parser.add_argument("--evaluation-run-id", default=None, dest="evaluation_run_id")
+    promote_parser.add_argument("--notes", default=None)
+    promote_parser.set_defaults(func=_cmd_model_promote)
+
+    list_parser = model_subparsers.add_parser("list", help="List registered models.")
+    list_parser.set_defaults(func=_cmd_model_list)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python_dpo",
@@ -3559,6 +4163,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_train_parser(subparsers)
     _add_benchmark_parser(subparsers)
     _add_evaluate_model_parser(subparsers)
+    _add_experiment_parser(subparsers)
+    _add_model_parser(subparsers)
 
     for name in _PLACEHOLDER_STAGES:
         sub = subparsers.add_parser(

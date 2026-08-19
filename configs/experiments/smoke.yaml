@@ -1,0 +1,64 @@
+# The tiny end-to-end smoke experiment (spec sections 24, 25, 87): 3 problems, 2
+# candidates/problem, 1 training step, 2 evaluation problems -- small enough to prove
+# problem -> candidate -> pytest -> preference -> DPO -> evaluation -> package runs
+# end to end, without claiming anything about model quality.
+#
+# Usable directly (`--config configs/experiments/smoke.yaml`, no `--smoke-test` flag
+# needed) or as a base further reduced by `--smoke-test`, which applies the identical
+# reductions to whatever config is loaded (python_dpo.pipeline.config.SMOKE_TEST_OVERRIDES).
+#
+# Uses the configured real model, not the mock: the mock client's deterministic
+# synthesized output does not solve real problems, so on a policy like `all_better` --
+# which needs at least one correct candidate to have anything to prefer -- it can
+# legitimately produce zero pairs, and training correctly refuses to train on nothing.
+# Pass `candidate_generation.mock_model=true` via `--set` for a fully offline dry run of
+# the pipeline's mechanics when that data-realism is not needed.
+
+experiment:
+  name: qwen-python-dpo-smoke
+  seed: 42
+
+git:
+  on_dirty: warn  # a smoke run validates the pipeline, not reproducibility
+
+hypothesis:
+  description: "The full pipeline executes end to end without error on a tiny dataset."
+
+success_criteria:
+  pass_at_1_delta: 0.0  # not a quality claim; see spec section 25
+
+problem_dataset:
+  enabled: true
+  problem_count: 3
+
+candidate_generation:
+  enabled: true
+  candidates_per_problem: 2
+
+candidate_execution:
+  enabled: true
+
+candidate_evaluation:
+  enabled: true
+
+preference_generation:
+  enabled: true
+  policy: all_better  # strict yields too few pairs on 3 problems to reach training
+
+dpo_training:
+  enabled: true
+  config: configs/training/dpo_qlora.yaml
+  max_steps: 1
+  allow_small_dataset: true
+
+model_evaluation:
+  enabled: true
+  benchmark: python_eval_v1
+  num_samples: 2
+  limit: 2
+
+error_analysis:
+  enabled: false  # Stage 11 not implemented yet
+
+packaging:
+  enabled: true

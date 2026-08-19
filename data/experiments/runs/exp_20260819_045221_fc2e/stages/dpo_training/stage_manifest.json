@@ -1,0 +1,24 @@
+{
+  "cache_key": "857d4e0148f9122ec857223828823465b8541882028c3ec45524d10aaf625b98",
+  "code_version": "0.10.0",
+  "configuration_hash": "3495512dd4d6c9cb08a0f290f6979549cf60d3dec4b25b38409388430ae87295",
+  "end_time": "2026-08-19T04:55:32Z",
+  "error": {
+    "error_type": "StageFailedError",
+    "input_artifacts": {},
+    "message": "training run dpo_20260819_045531_8446 failed: hardware check failed: 4.9 GiB free of 11.6 GiB total, below the 6.0 GiB needed; close other GPU processes or reduce max_length / batch size",
+    "stack_trace": null,
+    "stage": "dpo_training",
+    "timestamp": "2026-08-19T04:55:32Z"
+  },
+  "input_artifacts": {
+    "preferences": "4eaa9cee52fd36ff47bf5164220910a8abd708383080a47243df57d05f9cbe1a"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "dpo_training",
+  "stage_run_id": "exp_20260819_045221_fc2e_dpo_training",
+  "start_time": "2026-08-19T04:55:31Z",
+  "status": "FAILED"
+}

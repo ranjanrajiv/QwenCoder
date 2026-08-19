@@ -1,0 +1,61 @@
+{
+  "configuration_hash": "6e3668b2a349de766762629fd935095e8853619beeb76ae2dca8953dc36926cf",
+  "dataset_versions": {},
+  "end_time": "2026-08-19T06:21:13Z",
+  "experiment_name": "qwen-python-dpo-smoke",
+  "experiment_run_id": "exp_20260819_060948_f72e",
+  "final_evaluation": null,
+  "final_model": null,
+  "git_commit": {
+    "branch": "main",
+    "dirty": true,
+    "sha": "95281b130a2ab97a87a92ed584ce66aca55e4ce7"
+  },
+  "manifest_version": "experiment_manifest_v1",
+  "model_versions": {},
+  "recommendation": null,
+  "stage_runs": {
+    "candidate_evaluation": {
+      "reused": false,
+      "stage_run_id": "rank_20260819_061722_9de4",
+      "status": "COMPLETED"
+    },
+    "candidate_execution": {
+      "reused": false,
+      "stage_run_id": "eval_20260819_061432_5204",
+      "status": "COMPLETED"
+    },
+    "candidate_generation": {
+      "reused": false,
+      "stage_run_id": "run_20260819_060953_1cba",
+      "status": "COMPLETED"
+    },
+    "dpo_training": {
+      "reused": false,
+      "stage_run_id": "dpo_20260819_061731_8314",
+      "status": "COMPLETED"
+    },
+    "model_evaluation": {
+      "reused": false,
+      "stage_run_id": "eval_20260819_061857_114a",
+      "status": "COMPLETED"
+    },
+    "packaging": {
+      "reused": false,
+      "stage_run_id": "exp_20260819_060948_f72e_packaging",
+      "status": "COMPLETED"
+    },
+    "preference_generation": {
+      "reused": false,
+      "stage_run_id": "pref_20260819_061728_849c",
+      "status": "COMPLETED"
+    },
+    "problem_dataset": {
+      "reused": false,
+      "stage_run_id": "exp_20260819_060948_f72e_problem_dataset",
+      "status": "COMPLETED"
+    }
+  },
+  "start_time": "2026-08-19T06:09:52Z",
+  "status": "completed"
+}

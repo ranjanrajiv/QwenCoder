@@ -1,0 +1,24 @@
+{
+  "cache_key": "bf2f06a5873428543851643c3da7bd6fdf01d1476b077c3558ec6c06129b5f17",
+  "code_version": "0.10.0",
+  "configuration_hash": "26b3426b2593763c96d0890b4a77a0bbf66d13fc512b0c6b138a23c290f30a2a",
+  "end_time": "2026-08-19T04:44:15Z",
+  "error": {
+    "error_type": "StageFailedError",
+    "input_artifacts": {},
+    "message": "candidate execution run eval_20260819_044410_0c26 did not complete",
+    "stack_trace": null,
+    "stage": "candidate_execution",
+    "timestamp": "2026-08-19T04:44:15Z"
+  },
+  "input_artifacts": {
+    "candidates": "e4f3b0928855d60a1453d29e0377b01c0a930f6774c4bbe13b5d0ee387971d1f"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "candidate_execution",
+  "stage_run_id": "exp_20260819_044355_656f_candidate_execution",
+  "start_time": "2026-08-19T04:44:04Z",
+  "status": "FAILED"
+}

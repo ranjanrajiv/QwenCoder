@@ -180,6 +180,7 @@ def test_config_loader_wraps_sandbox_errors_as_config_errors(tmp_path):
         "  rankings: data/rankings\n"
         "  preferences: data/preferences\n  training: data/training\n"
             "  model_evaluations: data/model_evaluations\n"
+            "  experiments: data/experiments\n"
             "  reports: data/reports\n"
         "logging:\n  level: INFO\n"
         "model:\n  provider: mock\n  name: mock/x\n"
