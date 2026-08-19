@@ -70,22 +70,181 @@ foundational commitment, and much of the design follows from refusing to comprom
 
 ### 2. The main danger is fooling yourself
 
-This is the conviction that shapes the most code. When you're measuring whether your own
-training worked, there are a dozen ways to accidentally produce a flattering number —
-evaluate on problems you trained on, quietly drop the failures, tune the success threshold
-after seeing the result, retry until you like the answer.
+This is the conviction that shapes the most code, and it deserves the most space.
 
-So the system is full of **refusals**. It will stop and fail rather than produce a number it
-can't stand behind:
+When you measure someone else's work, a mistake gives you a wrong answer. When you measure
+**your own** work, a mistake tends to give you a *flattering* wrong answer — because errors
+that make results look good feel like success and don't prompt investigation, while errors
+that make results look bad feel like bugs and get hunted down.
 
-- It refuses to train when there are no real preference pairs to train on.
-- It refuses to evaluate when a training problem has leaked into the held-out test set.
-- It refuses to declare success on evidence too thin to support the claim.
-- It refuses to write a recommendation that has no evidence attached.
-- Its reports say "potential data gap," never "X caused Y," when the evidence only shows
-  the two occurred together.
+That asymmetry is the whole problem. Left alone, a pipeline drifts toward good-looking
+numbers, and nobody notices, because at every step the person checking is the person hoping.
 
-Several of these have fired in practice. They are the system working, not bugs.
+So the system is full of **refusals**. Each one blocks a specific, named way this kind of
+project lies to itself.
+
+#### Measuring something you already taught it
+
+*The mistake:* train on a problem, then test on that same problem. The model has effectively
+seen the answer sheet. The score goes up and means nothing.
+
+*Why it's insidious:* it is invisible downstream. The benchmark file is content-hashed and
+looks pristine — the contamination lives upstream, in the training data. Nothing about the
+evaluation report would look wrong. You would get a genuinely better number and a genuinely
+worthless one, with no way to tell them apart later.
+
+*The guard:* before every evaluation, the benchmark is cross-referenced against the training
+split, and any overlap stops the run. This has fired in practice:
+
+```
+Stage model_evaluation failed: benchmark 'python_eval_v1' overlaps
+the preference train split: p005
+```
+
+That run had already spent eleven minutes generating and training. It discarded the result
+rather than report a contaminated number.
+
+A second copy of the guard sits in the analysis stage, deliberately harsher: when a refined
+dataset would carry a held-out problem, it **raises an error rather than filtering the row
+out**. Filtering would let a leak be introduced and quietly corrected, leaving no trace it
+was attempted. An exception makes the attempt visible.
+
+#### Measuring nothing and calling it a result
+
+*The mistake:* run training with an empty or near-empty dataset. You get an adapter. It is
+labelled "DPO-trained." It is really the base model with noise on top.
+
+*Why it's insidious:* everything downstream works perfectly. Evaluation runs, produces
+numbers, shows no improvement — and the conclusion drawn is *"DPO doesn't help this model,"*
+when the real conclusion was *"nothing was ever trained."* Those look identical from outside.
+
+*The guard:* training refuses to start on an empty split. This has fired in practice:
+
+```
+Stage dpo_training failed: the training split is empty;
+there is nothing to train on
+```
+
+The companion guard refuses to train without a validation split, rather than training blind
+and reporting a loss curve nobody can interpret.
+
+#### Reading noise as signal
+
+*The mistake:* draw a conclusion from a sample too small to support one.
+
+*Why it's insidious:* small samples produce *large* apparent effects. With seven benchmark
+problems, a single problem flipping moves the headline number by fourteen percentage points
+— a dramatic-looking result generated entirely by chance.
+
+*The guard:* the analysis stage checks an evidence floor *before* any other verdict. Below
+thirty benchmark problems, or with a result range too wide to be informative, the answer is
+`insufficient_evidence`, and no other conclusion may be reported as the headline however
+suggestive it looks. The report says so in its opening paragraph rather than burying it:
+
+> This decision gates every other finding below. The analyses still ran and their numbers
+> are reported, but the evidence does not meet the configured minimum, so none of them is
+> offered as a conclusion about model quality.
+
+On the real data, the coverage and failure analyses both found things worth acting on. The
+gate suppressed them anyway. That is the guard working against its own findings.
+
+#### Moving the goalposts
+
+*The mistake:* run the experiment, see the result, then decide what counts as success.
+
+*Why it's insidious:* it never feels like cheating. It feels like refining your criteria in
+light of what you learned.
+
+*The guard:* success criteria live in the configuration file, fixed before the run. The
+evaluation reports each clause separately and then the overall verdict, so a `false` is
+legible rather than a single number open to reinterpretation.
+
+The strongest evidence this holds is that the project published a negative verdict on its
+own model:
+
+```
+pass_at_1_improves: False
+DPO_SUCCESS: False
+```
+
+Adjusting the thresholds afterwards to produce a pass would have taken about one line. It
+was not done.
+
+#### Losing the inconvenient data
+
+*The mistake:* quietly drop what does not fit — failed generations, rejected pairs,
+candidates that crashed. The dataset gets cleaner and the statistics get wrong, because the
+attrition is invisible.
+
+*The guard:* every generated candidate, evaluation failure and rejected preference pair is
+persisted **with its rejection reason**. The refinement plan records a verdict for every
+pair, including the ones it keeps, so it is a complete audit rather than a list of
+survivors.
+
+Empty files are written deliberately for the same reason. If there were no regressions, the
+regressions file exists and is empty — so "no regressions" stays distinguishable from "the
+stage never ran."
+
+#### Dressing up coincidence as cause
+
+*The mistake:* observe that a weakly-covered category also has failures, and write "DPO
+failed because of insufficient data in that category."
+
+*Why it's insidious:* it is a perfectly reasonable hypothesis. It is simply not something
+the observation establishes — least of all here, where each category holds a single problem.
+
+*The guard:* reports say *"potential data gap"* and never use a causal verb. This is not a
+style preference: there is a list of forbidden phrases and a test asserting none of them
+appears in the rendered output. Every analysis report also ends with a section titled "What
+this analysis does not establish."
+
+A related rule: the report names a likely failure mode only when a specific error type
+actually dominates. With no clear pattern the line is **omitted** rather than filled with a
+guess.
+
+#### Trusting a judgement you cannot check
+
+*The mistake:* use a language model to grade the outputs.
+
+*Why it's insidious:* it is convenient, it scales, and it produces plausible labels. But
+those labels cannot be audited or reproduced, and everything built on them inherits that.
+The recommendations become unfalsifiable.
+
+*The guard:* classification is deterministic — test status, error type, exit code, timeout
+flag. An AI judge is explicitly forbidden as the primary classifier. Same inputs, same
+label, every time, and anyone can check it by hand.
+
+#### Promoting on hope
+
+*The mistake:* a model looks good, so it quietly becomes the default.
+
+*The guard:* packaging registers models as `EXPERIMENTAL` only. Reaching `RECOMMENDED`
+requires passing through `VALIDATED` first — so nothing is recommended sight-unseen — plus a
+recorded passing evaluation, which the tool reads from the report rather than accepting on
+assertion.
+
+#### The principle underneath all of it
+
+These guards share something: they are enforced **by construction, not by discipline**.
+
+The clearest case is in the analysis code, where a recommendation must carry evidence and a
+stated hypothesis — so the object refuses to be constructed without them:
+
+```python
+if not isinstance(self.evidence, dict) or not self.evidence:
+    raise AnalysisStoreError(
+        "recommendation.evidence must be a non-empty mapping (spec section 55): "
+        "a recommendation without evidence is an opinion"
+    )
+```
+
+This could have been a code-review convention instead. It would have held for a while and
+then eroded — someone in a hurry, someone new, someone who does not know why the rule
+exists. As a constructor check it cannot erode: an unsupported recommendation is
+unrepresentable.
+
+That is the pattern throughout. The guards are not reminders to be careful. They are
+structures that make the careless thing impossible.
 
 ### 3. Untrusted code is untrusted
 
