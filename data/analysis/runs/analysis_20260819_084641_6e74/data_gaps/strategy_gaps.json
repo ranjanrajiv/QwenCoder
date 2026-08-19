@@ -1,0 +1,15 @@
+{
+  "chosen": {
+    "alternative": 3,
+    "edge_case_focused": 3,
+    "normal": 3,
+    "straightforward": 3
+  },
+  "rejected": {
+    "alternative": 2,
+    "edge_case_focused": 2,
+    "normal": 2,
+    "optimized": 4,
+    "straightforward": 2
+  }
+}

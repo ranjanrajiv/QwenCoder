@@ -1,0 +1,156 @@
+[
+  {
+    "preference_id": "pref_p004_c001__p004_c004",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p004_c001__p004_c005",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p004_c002__p004_c004",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p004_c002__p004_c005",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p004_c003__p004_c004",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p004_c003__p004_c005",
+    "problem_id": "p004",
+    "reason": "problem is held out in the evaluation benchmark; training on it would invalidate every future evaluation (spec sections 65, 66)",
+    "score_margin": 0.25,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c001__p007_c003",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c001__p007_c004",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c001__p007_c005",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c002__p007_c003",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c002__p007_c004",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p007_c002__p007_c005",
+    "problem_id": "p007",
+    "reason": "score margin 0.125 is below the configured minimum 0.200",
+    "score_margin": 0.125,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c003__p008_c001",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c004__p008_c001",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c003__p008_c002",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c004__p008_c002",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c003__p008_c005",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p008_c004__p008_c005",
+    "problem_id": "p008",
+    "reason": "score margin 0.111 is below the configured minimum 0.200",
+    "score_margin": 0.11111111111111116,
+    "verdict": "remove"
+  },
+  {
+    "preference_id": "pref_p010_c001__p010_c003",
+    "problem_id": "p010",
+    "reason": "meets every refinement criterion",
+    "score_margin": 0.5,
+    "verdict": "retain"
+  },
+  {
+    "preference_id": "pref_p010_c002__p010_c003",
+    "problem_id": "p010",
+    "reason": "meets every refinement criterion",
+    "score_margin": 0.5,
+    "verdict": "retain"
+  },
+  {
+    "preference_id": "pref_p010_c004__p010_c003",
+    "problem_id": "p010",
+    "reason": "meets every refinement criterion",
+    "score_margin": 0.5,
+    "verdict": "retain"
+  },
+  {
+    "preference_id": "pref_p010_c005__p010_c003",
+    "problem_id": "p010",
+    "reason": "meets every refinement criterion",
+    "score_margin": 0.5,
+    "verdict": "retain"
+  }
+]

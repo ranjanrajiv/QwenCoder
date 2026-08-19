@@ -58,7 +58,7 @@ model_evaluation:
   limit: 2
 
 error_analysis:
-  enabled: false  # Stage 11 not implemented yet
+  enabled: true
 
 packaging:
   enabled: true

@@ -40,6 +40,7 @@ def test_config_loads_real_config_yaml():
         config.paths.training,
         config.paths.model_evaluations,
         config.paths.experiments,
+        config.paths.analysis,
         config.paths.reports,
     ):
         assert path.is_absolute()
@@ -71,6 +72,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         training=tmp_path / "training",
         model_evaluations=tmp_path / "model_evaluations",
         experiments=tmp_path / "experiments",
+        analysis=tmp_path / "analysis",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()
@@ -84,6 +86,7 @@ def test_paths_ensure_exists_creates_all_directories(tmp_path):
         paths.training,
         paths.model_evaluations,
         paths.experiments,
+        paths.analysis,
         paths.reports,
     ):
         assert path.is_dir()
@@ -100,6 +103,7 @@ def test_real_data_directories_exist():
         "training",
         "model_evaluations",
         "experiments",
+        "analysis",
         "reports",
     ):
         assert (PROJECT_ROOT / "data" / name).is_dir()

@@ -97,6 +97,7 @@ def test_write_experiment_reports_writes_all_four_files(tmp_path):
         evaluations=tmp_path / "evaluations", rankings=tmp_path / "rankings",
         preferences=tmp_path / "preferences", training=tmp_path / "training",
         model_evaluations=tmp_path / "model_evaluations", experiments=tmp_path / "experiments",
+        analysis=tmp_path / "analysis",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()

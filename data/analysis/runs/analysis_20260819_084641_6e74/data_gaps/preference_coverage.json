@@ -1,0 +1,27 @@
+{
+  "mean_score_margin": 0.11805555555555558,
+  "pairs_by_category": {
+    "edge_cases": 6,
+    "exceptions": 6
+  },
+  "problems_with_pairs": [
+    "p004",
+    "p007",
+    "p008",
+    "p010"
+  ],
+  "problems_without_pairs": [
+    "p001",
+    "p002",
+    "p003",
+    "p005",
+    "p006",
+    "p009"
+  ],
+  "total_pairs": 22,
+  "trained_pairs": 12,
+  "trained_problem_ids": [
+    "p007",
+    "p008"
+  ]
+}

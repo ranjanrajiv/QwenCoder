@@ -1,0 +1,19 @@
+{
+  "distinct_steps": 1,
+  "eval_loss_points": 1,
+  "final_eval_loss": 0.6768516302108765,
+  "final_train_loss": 0.6931471824645996,
+  "first_train_loss": 0.6931471824645996,
+  "logged_rows": 3,
+  "preference_overfitting": "not_applicable",
+  "preference_overfitting_reason": "Stage 10 evaluates held-out problems only and does not measure training-set performance, so no train-vs-held-out gap can be computed (spec section 69)",
+  "reason": "1 distinct training step(s) logged; over- and undertraining are trend properties and need at least two",
+  "reward_metrics": {
+    "rewards/accuracies": 0.0,
+    "rewards/chosen": 0.0,
+    "rewards/margins": 0.0,
+    "rewards/rejected": 0.0
+  },
+  "train_loss_points": 1,
+  "verdict": "insufficient_data"
+}

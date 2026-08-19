@@ -11,6 +11,7 @@ paths:
   training: data/training
   model_evaluations: data/model_evaluations
   experiments: data/experiments
+  analysis: data/analysis
   reports: data/reports
 
 logging:

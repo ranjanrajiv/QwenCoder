@@ -1,0 +1,348 @@
+{
+  "analysis_run_id": "analysis_20260819_084641_6e74",
+  "benchmark_version": "python_eval_v1",
+  "category_gaps": [
+    {
+      "benchmark_share": 0.0,
+      "coverage_ratio": null,
+      "name": "async",
+      "training_share": 0.0,
+      "verdict": "absent_from_both"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "dictionaries",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.0,
+      "coverage_ratio": null,
+      "name": "edge_cases",
+      "training_share": 0.5,
+      "verdict": "not_in_benchmark"
+    },
+    {
+      "benchmark_share": 0.0,
+      "coverage_ratio": null,
+      "name": "exceptions",
+      "training_share": 0.5,
+      "verdict": "not_in_benchmark"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "generators",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "lists",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "recursion",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "sets",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "sorting",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    },
+    {
+      "benchmark_share": 0.14285714285714285,
+      "coverage_ratio": 0.0,
+      "name": "strings",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    }
+  ],
+  "created_at": "2026-08-19T08:46:47Z",
+  "difficulty_gaps": [
+    {
+      "benchmark_share": 0.42857142857142855,
+      "coverage_ratio": 2.3333333333333335,
+      "name": "easy",
+      "training_share": 1.0,
+      "verdict": "overrepresented"
+    },
+    {
+      "benchmark_share": 0.0,
+      "coverage_ratio": null,
+      "name": "hard",
+      "training_share": 0.0,
+      "verdict": "absent_from_both"
+    },
+    {
+      "benchmark_share": 0.5714285714285714,
+      "coverage_ratio": 0.0,
+      "name": "medium",
+      "training_share": 0.0,
+      "verdict": "underrepresented"
+    }
+  ],
+  "diversity": {
+    "base_diversity": 0.3142857142857143,
+    "base_total": 70,
+    "base_unique": 22,
+    "dpo_diversity": 0.2857142857142857,
+    "dpo_total": 70,
+    "dpo_unique": 20,
+    "mode_collapse_warning": false,
+    "per_problem": {
+      "p001": {
+        "base": 0.1,
+        "dpo": 0.1
+      },
+      "p002": {
+        "base": 0.1,
+        "dpo": 0.1
+      },
+      "p003": {
+        "base": 0.4,
+        "dpo": 0.4
+      },
+      "p004": {
+        "base": 0.7,
+        "dpo": 0.7
+      },
+      "p005": {
+        "base": 0.3,
+        "dpo": 0.2
+      },
+      "p006": {
+        "base": 0.2,
+        "dpo": 0.2
+      },
+      "p009": {
+        "base": 0.4,
+        "dpo": 0.3
+      }
+    },
+    "relative_change": -0.09090909090909094
+  },
+  "error_profiles": {
+    "base": {
+      "counts_by_category": {
+        "assertion_failure": 16,
+        "code_extraction_failure": 0,
+        "generation_failure": 0,
+        "import_error": 0,
+        "infrastructure_error": 0,
+        "memory_error": 0,
+        "runtime_error": 0,
+        "syntax_error": 0,
+        "timeout": 0
+      },
+      "counts_by_subcategory": {
+        "AssertionError": 48,
+        "other": 1
+      },
+      "infrastructure_errors": 0,
+      "model_variant": "base",
+      "passed": 54,
+      "total_samples": 70
+    },
+    "dpo": {
+      "counts_by_category": {
+        "assertion_failure": 15,
+        "code_extraction_failure": 0,
+        "generation_failure": 0,
+        "import_error": 0,
+        "infrastructure_error": 0,
+        "memory_error": 0,
+        "runtime_error": 0,
+        "syntax_error": 0,
+        "timeout": 0
+      },
+      "counts_by_subcategory": {
+        "AssertionError": 49
+      },
+      "infrastructure_errors": 0,
+      "model_variant": "dpo",
+      "passed": 55,
+      "total_samples": 70
+    }
+  },
+  "improvements": 0,
+  "iteration_decision": {
+    "decision": "insufficient_evidence",
+    "gated": true,
+    "reasons": [
+      "benchmark has 7 problem(s), below the configured minimum of 30"
+    ]
+  },
+  "lineage": {
+    "candidate_run_id": "20260817_055411",
+    "evaluation_run_id": "eval_20260818_155511_1633",
+    "preference_run_id": "pref_20260818_074347_5eff",
+    "ranking_run_id": "rank_20260817_161726_a84d",
+    "sandbox_evaluation_run_id": "eval_20260817_115154_dcd4",
+    "training_run_id": "dpo_20260818_081231_a91d"
+  },
+  "preference_coverage": {
+    "mean_score_margin": 0.11805555555555558,
+    "pairs_by_category": {
+      "edge_cases": 6,
+      "exceptions": 6
+    },
+    "problems_with_pairs": [
+      "p004",
+      "p007",
+      "p008",
+      "p010"
+    ],
+    "problems_without_pairs": [
+      "p001",
+      "p002",
+      "p003",
+      "p005",
+      "p006",
+      "p009"
+    ],
+    "total_pairs": 22,
+    "trained_pairs": 12,
+    "trained_problem_ids": [
+      "p007",
+      "p008"
+    ]
+  },
+  "problems_analysed": 7,
+  "recommendations": [
+    {
+      "category": "expand_benchmark",
+      "confidence": "high",
+      "evidence": {
+        "trained_categories_absent_from_benchmark": [
+          "edge_cases",
+          "exceptions"
+        ],
+        "training_shares": {
+          "edge_cases": 0.5,
+          "exceptions": 0.5
+        }
+      },
+      "evidence_strength": 0.9,
+      "expected_impact": 0.6,
+      "hypothesis": "Extending the benchmark to cover edge_cases, exceptions would make the categories DPO actually trained on measurable; at present nothing that was trained is evaluated",
+      "implementation_cost": 0.5,
+      "recommendation_score": 0.67
+    },
+    {
+      "category": "refine_preference_pairs",
+      "confidence": "high",
+      "evidence": {
+        "problems_without_pairs": [
+          "p001",
+          "p002",
+          "p003",
+          "p005",
+          "p006",
+          "p009"
+        ],
+        "total_pairs": 22,
+        "trained_pairs": 12
+      },
+      "evidence_strength": 0.8,
+      "expected_impact": 0.6,
+      "hypothesis": "Only 12 pair(s) reached training; increasing the pair count should give the optimiser enough signal to move the policy at all",
+      "implementation_cost": 0.5,
+      "recommendation_score": 0.64
+    },
+    {
+      "category": "add_data",
+      "confidence": "medium",
+      "evidence": {
+        "benchmark_categories_unsolved_by_dpo": [
+          "dictionaries"
+        ],
+        "coverage_ratios": {
+          "dictionaries": 0.0,
+          "generators": 0.0,
+          "lists": 0.0,
+          "recursion": 0.0,
+          "sets": 0.0,
+          "sorting": 0.0,
+          "strings": 0.0
+        },
+        "underrepresented_categories": [
+          "dictionaries",
+          "generators",
+          "lists",
+          "recursion",
+          "sets",
+          "sorting",
+          "strings"
+        ]
+      },
+      "evidence_strength": 0.7,
+      "expected_impact": 0.4,
+      "hypothesis": "Adding preference pairs for dictionaries should raise held-out pass@1 in those categories, which the current training split does not cover",
+      "implementation_cost": 0.6,
+      "recommendation_score": 0.49
+    },
+    {
+      "category": "increase_problem_difficulty",
+      "confidence": "medium",
+      "evidence": {
+        "difficulty_shares": {
+          "easy": {
+            "benchmark": 0.42857142857142855,
+            "training": 1.0
+          },
+          "hard": {
+            "benchmark": 0.0,
+            "training": 0.0
+          },
+          "medium": {
+            "benchmark": 0.5714285714285714,
+            "training": 0.0
+          }
+        }
+      },
+      "evidence_strength": 0.6,
+      "expected_impact": 0.4,
+      "hypothesis": "The training split is skewed toward easy problems; adding medium and hard problems should produce preference pairs that discriminate on cases the benchmark actually tests",
+      "implementation_cost": 0.7,
+      "recommendation_score": 0.44
+    }
+  ],
+  "regressions": 0,
+  "summary_version": "analysis_summary_v1",
+  "training_curve": {
+    "distinct_steps": 1,
+    "eval_loss_points": 1,
+    "final_eval_loss": 0.6768516302108765,
+    "final_train_loss": 0.6931471824645996,
+    "first_train_loss": 0.6931471824645996,
+    "logged_rows": 3,
+    "preference_overfitting": "not_applicable",
+    "preference_overfitting_reason": "Stage 10 evaluates held-out problems only and does not measure training-set performance, so no train-vs-held-out gap can be computed (spec section 69)",
+    "reason": "1 distinct training step(s) logged; over- and undertraining are trend properties and need at least two",
+    "reward_metrics": {
+      "rewards/accuracies": 0.0,
+      "rewards/chosen": 0.0,
+      "rewards/margins": 0.0,
+      "rewards/rejected": 0.0
+    },
+    "train_loss_points": 1,
+    "verdict": "insufficient_data"
+  },
+  "unchanged": 7
+}

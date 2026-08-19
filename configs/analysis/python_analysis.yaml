@@ -1,0 +1,49 @@
+# Stage 11 error-analysis thresholds (spec 11).
+#
+# A standalone file rather than a section in the root config.yaml, matching Stage 9's
+# configs/training/dpo_qlora.yaml and Stage 10's configs/evaluation/python_eval.yaml:
+# these are experiment tunables, not project paths.
+#
+# Every value here is a comparison constant used somewhere in the analysis. They live in
+# one file so a verdict can never depend on a number hard-coded next to an `if`.
+
+thresholds:
+  # Section 52: a problem's test-pass rate must fall by at least this much for the
+  # regression to be graded above `low` severity.
+  regression_threshold: 0.2
+  # Section 37: a category's (training share / benchmark share) ratio below the first
+  # value is `underrepresented`, above the second is `overrepresented`, between is
+  # `balanced`.
+  coverage_underrepresented: 0.5
+  coverage_overrepresented: 2.0
+  # Section 88: warn about mode collapse only when DPO's output diversity falls this far
+  # *relative* to base -- an absolute drop would fire on noise at small sample counts.
+  mode_collapse_reduction: 0.2
+  # Section 47: a test both variants fail at least this often is a "hard test", a property
+  # of the problem rather than of either model.
+  hard_test_failure_rate: 0.5
+  # Sections 48, 49: a failure-rate gap of at least this much between variants marks a
+  # test as DPO-specific or base-specific.
+  variant_specific_test_delta: 0.2
+
+# Section 95: the evidence floor. Below either gate, `insufficient_evidence` is the
+# reported iteration decision and no outcome-level conclusion is offered, however
+# suggestive the other analyses look.
+minimum_evidence:
+  benchmark_problems: 30
+  max_ci_width: 0.15
+
+recommendations:
+  # Section 57.
+  max_recommendations: 10
+  weights:
+    expected_impact: 0.5
+    evidence_strength: 0.3
+    implementation_cost: 0.2
+
+# Section 71: which Stage 8 pairs survive into refined_preferences.jsonl. Stage 8's own
+# files are never modified -- refinement always writes a new, re-versioned copy.
+refinement:
+  minimum_score_margin: 0.2
+  drop_duplicate_code: true
+  drop_infrastructure_errors: true

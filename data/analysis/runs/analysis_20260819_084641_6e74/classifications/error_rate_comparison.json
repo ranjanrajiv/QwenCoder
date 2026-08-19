@@ -1,0 +1,65 @@
+[
+  {
+    "base_rate": 0.0,
+    "category": "generation_failure",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "code_extraction_failure",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "syntax_error",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "import_error",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "runtime_error",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.22857142857142856,
+    "category": "assertion_failure",
+    "delta": -0.01428571428571429,
+    "dpo_rate": 0.21428571428571427,
+    "relative_delta": -0.06250000000000003
+  },
+  {
+    "base_rate": 0.0,
+    "category": "timeout",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "memory_error",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  },
+  {
+    "base_rate": 0.0,
+    "category": "infrastructure_error",
+    "delta": 0.0,
+    "dpo_rate": 0.0,
+    "relative_delta": null
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "counts_by_category": {
+    "assertion_failure": 15,
+    "code_extraction_failure": 0,
+    "generation_failure": 0,
+    "import_error": 0,
+    "infrastructure_error": 0,
+    "memory_error": 0,
+    "runtime_error": 0,
+    "syntax_error": 0,
+    "timeout": 0
+  },
+  "counts_by_subcategory": {
+    "AssertionError": 49
+  },
+  "infrastructure_errors": 0,
+  "model_variant": "dpo",
+  "passed": 55,
+  "total_samples": 70
+}

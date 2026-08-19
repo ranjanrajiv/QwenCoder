@@ -388,6 +388,7 @@ def _artifact_path(project_config: Any, stage_name: str, stage_run_id: str):
         "preference_generation": lambda: paths.preferences / "runs" / stage_run_id,
         "dpo_training": lambda: paths.training / "runs" / stage_run_id / "adapter",
         "model_evaluation": lambda: paths.model_evaluations / "runs" / stage_run_id,
+        "error_analysis": lambda: paths.analysis / "runs" / stage_run_id,
     }
     builder = builders.get(stage_name)
     return builder() if builder else None

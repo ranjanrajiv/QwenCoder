@@ -1,0 +1,99 @@
+[
+  {
+    "category": "expand_benchmark",
+    "confidence": "high",
+    "evidence": {
+      "trained_categories_absent_from_benchmark": [
+        "edge_cases",
+        "exceptions"
+      ],
+      "training_shares": {
+        "edge_cases": 0.5,
+        "exceptions": 0.5
+      }
+    },
+    "evidence_strength": 0.9,
+    "expected_impact": 0.6,
+    "hypothesis": "Extending the benchmark to cover edge_cases, exceptions would make the categories DPO actually trained on measurable; at present nothing that was trained is evaluated",
+    "implementation_cost": 0.5,
+    "recommendation_score": 0.67
+  },
+  {
+    "category": "refine_preference_pairs",
+    "confidence": "high",
+    "evidence": {
+      "problems_without_pairs": [
+        "p001",
+        "p002",
+        "p003",
+        "p005",
+        "p006",
+        "p009"
+      ],
+      "total_pairs": 22,
+      "trained_pairs": 12
+    },
+    "evidence_strength": 0.8,
+    "expected_impact": 0.6,
+    "hypothesis": "Only 12 pair(s) reached training; increasing the pair count should give the optimiser enough signal to move the policy at all",
+    "implementation_cost": 0.5,
+    "recommendation_score": 0.64
+  },
+  {
+    "category": "add_data",
+    "confidence": "medium",
+    "evidence": {
+      "benchmark_categories_unsolved_by_dpo": [
+        "dictionaries"
+      ],
+      "coverage_ratios": {
+        "dictionaries": 0.0,
+        "generators": 0.0,
+        "lists": 0.0,
+        "recursion": 0.0,
+        "sets": 0.0,
+        "sorting": 0.0,
+        "strings": 0.0
+      },
+      "underrepresented_categories": [
+        "dictionaries",
+        "generators",
+        "lists",
+        "recursion",
+        "sets",
+        "sorting",
+        "strings"
+      ]
+    },
+    "evidence_strength": 0.7,
+    "expected_impact": 0.4,
+    "hypothesis": "Adding preference pairs for dictionaries should raise held-out pass@1 in those categories, which the current training split does not cover",
+    "implementation_cost": 0.6,
+    "recommendation_score": 0.49
+  },
+  {
+    "category": "increase_problem_difficulty",
+    "confidence": "medium",
+    "evidence": {
+      "difficulty_shares": {
+        "easy": {
+          "benchmark": 0.42857142857142855,
+          "training": 1.0
+        },
+        "hard": {
+          "benchmark": 0.0,
+          "training": 0.0
+        },
+        "medium": {
+          "benchmark": 0.5714285714285714,
+          "training": 0.0
+        }
+      }
+    },
+    "evidence_strength": 0.6,
+    "expected_impact": 0.4,
+    "hypothesis": "The training split is skewed toward easy problems; adding medium and hard problems should produce preference pairs that discriminate on cases the benchmark actually tests",
+    "implementation_cost": 0.7,
+    "recommendation_score": 0.44
+  }
+]

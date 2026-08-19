@@ -1,0 +1,20 @@
+minimum_evidence:
+  benchmark_problems: 30
+  max_ci_width: 0.15
+recommendations:
+  max_recommendations: 10
+  weights:
+    evidence_strength: 0.3
+    expected_impact: 0.5
+    implementation_cost: 0.2
+refinement:
+  drop_duplicate_code: true
+  drop_infrastructure_errors: true
+  minimum_score_margin: 0.2
+thresholds:
+  coverage_overrepresented: 2.0
+  coverage_underrepresented: 0.5
+  hard_test_failure_rate: 0.5
+  mode_collapse_reduction: 0.2
+  regression_threshold: 0.2
+  variant_specific_test_delta: 0.2

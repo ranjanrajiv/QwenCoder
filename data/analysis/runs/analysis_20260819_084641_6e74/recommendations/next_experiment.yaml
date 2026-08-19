@@ -1,0 +1,28 @@
+source_evaluation_run_id: eval_20260818_155511_1633
+analysis_run_id: analysis_20260819_084641_6e74
+iteration_decision: insufficient_evidence
+hypothesis: Extending the benchmark to cover edge_cases, exceptions would make the
+  categories DPO actually trained on measurable; at present nothing that was trained
+  is evaluated
+proposed_changes:
+- category: expand_benchmark
+  hypothesis: Extending the benchmark to cover edge_cases, exceptions would make the
+    categories DPO actually trained on measurable; at present nothing that was trained
+    is evaluated
+  confidence: high
+- category: refine_preference_pairs
+  hypothesis: Only 12 pair(s) reached training; increasing the pair count should give
+    the optimiser enough signal to move the policy at all
+  confidence: high
+- category: add_data
+  hypothesis: Adding preference pairs for dictionaries should raise held-out pass@1
+    in those categories, which the current training split does not cover
+  confidence: medium
+- category: increase_problem_difficulty
+  hypothesis: The training split is skewed toward easy problems; adding medium and
+    hard problems should produce preference pairs that discriminate on cases the benchmark
+    actually tests
+  confidence: medium
+success_criteria:
+  note: Set before the next run, not after it. Held-out pass@1 must improve by a margin
+    decided in advance, on a benchmark large enough to detect it.

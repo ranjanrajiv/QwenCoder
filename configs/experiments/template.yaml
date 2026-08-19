@@ -55,7 +55,7 @@ model_evaluation:
   # model: both   # base | dpo | both
 
 error_analysis:
-  enabled: false  # Stage 11 not implemented yet
+  enabled: true
 
 packaging:
   enabled: true

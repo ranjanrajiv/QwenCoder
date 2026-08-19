@@ -1,0 +1,40 @@
+{
+  "base_diversity": 0.3142857142857143,
+  "base_total": 70,
+  "base_unique": 22,
+  "dpo_diversity": 0.2857142857142857,
+  "dpo_total": 70,
+  "dpo_unique": 20,
+  "mode_collapse_warning": false,
+  "per_problem": {
+    "p001": {
+      "base": 0.1,
+      "dpo": 0.1
+    },
+    "p002": {
+      "base": 0.1,
+      "dpo": 0.1
+    },
+    "p003": {
+      "base": 0.4,
+      "dpo": 0.4
+    },
+    "p004": {
+      "base": 0.7,
+      "dpo": 0.7
+    },
+    "p005": {
+      "base": 0.3,
+      "dpo": 0.2
+    },
+    "p006": {
+      "base": 0.2,
+      "dpo": 0.2
+    },
+    "p009": {
+      "base": 0.4,
+      "dpo": 0.3
+    }
+  },
+  "relative_change": -0.09090909090909094
+}

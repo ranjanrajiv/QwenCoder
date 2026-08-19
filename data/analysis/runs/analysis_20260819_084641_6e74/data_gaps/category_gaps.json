@@ -1,0 +1,72 @@
+[
+  {
+    "benchmark_share": 0.0,
+    "coverage_ratio": null,
+    "name": "async",
+    "training_share": 0.0,
+    "verdict": "absent_from_both"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "dictionaries",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.0,
+    "coverage_ratio": null,
+    "name": "edge_cases",
+    "training_share": 0.5,
+    "verdict": "not_in_benchmark"
+  },
+  {
+    "benchmark_share": 0.0,
+    "coverage_ratio": null,
+    "name": "exceptions",
+    "training_share": 0.5,
+    "verdict": "not_in_benchmark"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "generators",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "lists",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "recursion",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "sets",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "sorting",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  },
+  {
+    "benchmark_share": 0.14285714285714285,
+    "coverage_ratio": 0.0,
+    "name": "strings",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  }
+]

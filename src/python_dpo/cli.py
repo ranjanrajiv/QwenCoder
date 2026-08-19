@@ -3529,6 +3529,288 @@ def _add_sandbox_parser(subparsers: argparse._SubParsersAction) -> None:
     run_parser.set_defaults(func=_cmd_sandbox_run)
 
 
+# -------------------------------------------------------------------------------- analyze
+
+
+def _analysis_run_repository(config: Config):
+    from .analysis.run_repository import AnalysisRunRepository
+
+    return AnalysisRunRepository(config.paths.analysis / "runs")
+
+
+def _load_analysis_config(args: argparse.Namespace):
+    from .analysis.config import AnalysisConfig
+
+    return AnalysisConfig.load(Path(args.config) if getattr(args, "config", None) else None)
+
+
+def _cmd_analyze_run(args: argparse.Namespace, config: Config) -> int:
+    """Spec sections 106, 112: the full analysis."""
+    from .analysis import AnalysisError, run_analysis
+
+    try:
+        run_id, summary = run_analysis(
+            config,
+            args.evaluation_run_id,
+            analysis_config=_load_analysis_config(args),
+            preference_run_id=args.preference_run_id,
+            training_run_id=args.training_run_id,
+        )
+    except AnalysisError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    decision = summary["iteration_decision"]
+    lines = [
+        f"Analysis run {run_id} completed.",
+        "",
+        f"Iteration decision: {decision['decision']}",
+    ]
+    for reason in decision.get("reasons", []):
+        lines.append(f"  - {reason}")
+    lines.append("")
+    lines.append("Recommendations:")
+    for rec in summary["recommendations"]:
+        lines.append(f"  [{rec['recommendation_score']:.3f}] {rec['category']} ({rec['confidence']})")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_analyze_errors(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 107."""
+    from .analysis import AnalysisError, load_analysis_inputs
+    from .analysis.classification import build_error_profile, classify_variant, compare_error_rates
+
+    try:
+        inputs = load_analysis_inputs(config, args.evaluation_run_id)
+    except AnalysisError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    profiles = {}
+    lines: list[str] = []
+    for variant in inputs.variants:
+        classifications = classify_variant(
+            inputs.generations[variant], inputs.evaluations[variant],
+            inputs.test_results.get(variant, []),
+        )
+        profile = build_error_profile(variant, classifications)
+        profiles[variant] = profile
+        nonzero = {k: v for k, v in profile.counts_by_category.items() if v}
+        lines.append(
+            f"{variant:<6} samples={profile.total_samples} passed={profile.passed} "
+            f"failures={nonzero or '{}'}"
+        )
+        lines.append(f"       subcategories={profile.counts_by_subcategory or '{}'}")
+
+    if "base" in profiles and "dpo" in profiles:
+        lines.append("")
+        lines.append(f"{'category':<24} {'base':>8} {'dpo':>8} {'delta':>8}")
+        for comparison in compare_error_rates(profiles["base"], profiles["dpo"]):
+            if comparison.base_rate or comparison.dpo_rate:
+                lines.append(
+                    f"{comparison.category:<24} {comparison.base_rate:>8.3f} "
+                    f"{comparison.dpo_rate:>8.3f} {comparison.delta:>+8.3f}"
+                )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_analyze_data_gaps(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 108."""
+    from .analysis import AnalysisError, load_analysis_inputs
+    from .analysis.coverage import build_gaps, preference_coverage, training_problem_ids
+
+    analysis_config = _load_analysis_config(args)
+    try:
+        inputs = load_analysis_inputs(
+            config, args.evaluation_run_id, preference_run_id=args.preference_run_id
+        )
+    except AnalysisError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    trained = training_problem_ids(inputs.split_manifest, inputs.preference_pairs)
+    thresholds = analysis_config.thresholds
+    lines: list[str] = []
+    for attribute in ("category", "difficulty"):
+        lines.append(f"--- {attribute} ---")
+        for gap in build_gaps(
+            attribute=attribute, pairs=inputs.preference_pairs, problems=inputs.problems,
+            benchmark_problem_ids=inputs.benchmark_problem_ids, trained_problem_ids=trained,
+            under=thresholds.coverage_underrepresented,
+            over=thresholds.coverage_overrepresented,
+        ):
+            ratio = "n/a" if gap.coverage_ratio is None else f"{gap.coverage_ratio:.2f}"
+            lines.append(
+                f"  {gap.name:<16} training={gap.training_share:>6.0%} "
+                f"benchmark={gap.benchmark_share:>6.0%} ratio={ratio:>6} {gap.verdict}"
+            )
+    coverage = preference_coverage(inputs.preference_pairs, inputs.problems, trained)
+    lines.append("")
+    lines.append(f"pairs: {coverage['total_pairs']} total, {coverage['trained_pairs']} trained")
+    lines.append(f"problems without pairs: {', '.join(coverage['problems_without_pairs']) or '-'}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_analyze_recommend(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 109."""
+    from .analysis import AnalysisError, run_analysis
+
+    try:
+        _, summary = run_analysis(
+            config, args.evaluation_run_id, analysis_config=_load_analysis_config(args)
+        )
+    except AnalysisError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    decision = summary["iteration_decision"]
+    lines = [f"Iteration decision: {decision['decision']}"]
+    for reason in decision.get("reasons", []):
+        lines.append(f"  - {reason}")
+    lines.append("")
+    for rec in summary["recommendations"]:
+        lines.append(f"[{rec['recommendation_score']:.3f}] {rec['category']} ({rec['confidence']})")
+        lines.append(f"    {rec['hypothesis']}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _cmd_analyze_refine(args: argparse.Namespace, config: Config) -> int:
+    """Spec section 110. Emits the refined dataset and next_experiment.yaml; never trains
+    (spec sections 5, 113)."""
+    from .analysis import AnalysisError, run_analysis
+
+    try:
+        run_id, _ = run_analysis(
+            config, args.evaluation_run_id, analysis_config=_load_analysis_config(args)
+        )
+    except AnalysisError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    run_dir = _analysis_run_repository(config).run_dir(run_id)
+    sys.stdout.write(
+        f"Refined dataset written to {run_dir / 'refined_dataset'}\n"
+        f"Proposed next experiment: {run_dir / 'recommendations' / 'next_experiment.yaml'}\n"
+        "Nothing was retrained; the proposal is for a human to act on.\n"
+    )
+    return 0
+
+
+def _cmd_analyze_list(args: argparse.Namespace, config: Config) -> int:
+    repo = _analysis_run_repository(config)
+    runs = repo.list_runs()
+    if not runs:
+        sys.stdout.write("No analysis runs.\n")
+        return 0
+    for manifest in runs:
+        sys.stdout.write(
+            f"{manifest.analysis_run_id}  {manifest.status:<12}  "
+            f"{manifest.lineage.evaluation_run_id}\n"
+        )
+    return 0
+
+
+def _cmd_analyze_show(args: argparse.Namespace, config: Config) -> int:
+    from .analysis.errors import AnalysisRunNotFoundError
+
+    repo = _analysis_run_repository(config)
+    try:
+        manifest = repo.get_run(args.analysis_run_id)
+    except AnalysisRunNotFoundError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    summary = repo.read_summary(args.analysis_run_id) or {}
+    lines = [
+        f"Analysis run {manifest.analysis_run_id} ({manifest.status})",
+        f"  evaluation: {manifest.lineage.evaluation_run_id}",
+        f"  training:   {manifest.lineage.training_run_id}",
+        f"  preference: {manifest.lineage.preference_run_id}",
+    ]
+    if summary:
+        decision = summary.get("iteration_decision", {})
+        lines.append(f"  decision:   {decision.get('decision')}")
+        lines.append(
+            f"  outcomes:   {summary.get('improvements')} improved / "
+            f"{summary.get('regressions')} regressed / {summary.get('unchanged')} unchanged"
+        )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _add_analyze_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "analyze",
+        help="Classify failures, find data gaps, and propose the next experiment.",
+        description=(
+            "Stage 11: analyse a completed Stage 10 evaluation -- classify every failure "
+            "deterministically, sort problems into improvements and regressions, measure "
+            "test-level failure frequencies, output diversity and training/benchmark "
+            "coverage, then emit an evidence-backed recommendation set and a refined "
+            "preference dataset. Never calls a model, and never retrains."
+        ),
+    )
+    analyze_subparsers = parser.add_subparsers(dest="analyze_command")
+
+    # The bare `analyze --evaluation-run-id ...` form (section 106) coexists with the
+    # subcommands below by attaching every argument to the group parser and giving the
+    # group its own default action, exactly as `evaluate-model` does.
+    parser.add_argument("--evaluation-run-id", default=None, dest="evaluation_run_id")
+    parser.add_argument("--preference-run-id", default=None, dest="preference_run_id")
+    parser.add_argument("--training-run-id", default=None, dest="training_run_id")
+    parser.add_argument("--config", default=None, help="Analysis config YAML.")
+    parser.add_argument("--smoke-test", action="store_true", dest="smoke_test")
+
+    def _run_default(args: argparse.Namespace, config: Config) -> int:
+        if not args.evaluation_run_id:
+            logger.error("--evaluation-run-id is required")
+            return 1
+        return _cmd_analyze_run(args, config)
+
+    parser.set_defaults(func=_run_default)
+
+    def _add_common(sub: argparse.ArgumentParser, *, preference: bool = False) -> None:
+        sub.add_argument("--evaluation-run-id", required=True, dest="evaluation_run_id")
+        sub.add_argument("--config", default=None)
+        if preference:
+            sub.add_argument("--preference-run-id", default=None, dest="preference_run_id")
+
+    errors_parser = analyze_subparsers.add_parser(
+        "errors", help="Error profiles and the base-vs-DPO rate comparison."
+    )
+    _add_common(errors_parser)
+    errors_parser.set_defaults(func=_cmd_analyze_errors)
+
+    gaps_parser = analyze_subparsers.add_parser(
+        "data-gaps", help="Category, difficulty and preference coverage gaps."
+    )
+    _add_common(gaps_parser, preference=True)
+    gaps_parser.set_defaults(func=_cmd_analyze_data_gaps)
+
+    recommend_parser = analyze_subparsers.add_parser(
+        "recommend", help="Recommendations and the iteration decision."
+    )
+    _add_common(recommend_parser)
+    recommend_parser.set_defaults(func=_cmd_analyze_recommend)
+
+    refine_parser = analyze_subparsers.add_parser(
+        "refine", help="Refined preference dataset and next_experiment.yaml. Never trains."
+    )
+    _add_common(refine_parser)
+    refine_parser.set_defaults(func=_cmd_analyze_refine)
+
+    list_parser = analyze_subparsers.add_parser("list", help="List analysis runs.")
+    list_parser.set_defaults(func=_cmd_analyze_list)
+
+    show_parser = analyze_subparsers.add_parser("show", help="Show one analysis run.")
+    show_parser.add_argument("--analysis-run-id", required=True, dest="analysis_run_id")
+    show_parser.set_defaults(func=_cmd_analyze_show)
+
+
 # ----------------------------------------------------------------------------- experiment
 
 
@@ -4163,6 +4445,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_train_parser(subparsers)
     _add_benchmark_parser(subparsers)
     _add_evaluate_model_parser(subparsers)
+    _add_analyze_parser(subparsers)
     _add_experiment_parser(subparsers)
     _add_model_parser(subparsers)
 

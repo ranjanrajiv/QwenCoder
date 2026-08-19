@@ -1,0 +1,23 @@
+[
+  {
+    "benchmark_share": 0.42857142857142855,
+    "coverage_ratio": 2.3333333333333335,
+    "name": "easy",
+    "training_share": 1.0,
+    "verdict": "overrepresented"
+  },
+  {
+    "benchmark_share": 0.0,
+    "coverage_ratio": null,
+    "name": "hard",
+    "training_share": 0.0,
+    "verdict": "absent_from_both"
+  },
+  {
+    "benchmark_share": 0.5714285714285714,
+    "coverage_ratio": 0.0,
+    "name": "medium",
+    "training_share": 0.0,
+    "verdict": "underrepresented"
+  }
+]

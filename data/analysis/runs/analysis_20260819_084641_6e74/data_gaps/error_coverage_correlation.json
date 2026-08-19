@@ -1,0 +1,58 @@
+[
+  {
+    "benchmark_problems": 1,
+    "category": "dictionaries",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "dictionaries: potential data gap -- training share 0% against benchmark share 14%, with 1/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 1
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "generators",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "generators: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "lists",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "lists: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "recursion",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "recursion: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "sets",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "sets: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "sorting",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "sorting: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  },
+  {
+    "benchmark_problems": 1,
+    "category": "strings",
+    "coverage_ratio": 0.0,
+    "coverage_verdict": "underrepresented",
+    "observation": "strings: potential data gap -- training share 0% against benchmark share 14%, with 0/1 benchmark problem(s) unsolved by the DPO model",
+    "unsolved_by_dpo": 0
+  }
+]

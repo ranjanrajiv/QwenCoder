@@ -30,6 +30,7 @@ def project_config(tmp_path) -> Config:
         training=tmp_path / "training",
         model_evaluations=tmp_path / "model_evaluations",
         experiments=tmp_path / "experiments",
+        analysis=tmp_path / "analysis",
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()

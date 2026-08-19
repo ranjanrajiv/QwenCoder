@@ -28,6 +28,23 @@ _PROBE = """
 import sys
 
 import python_dpo
+import python_dpo.analysis
+import python_dpo.analysis.classification
+import python_dpo.analysis.config
+import python_dpo.analysis.coverage
+import python_dpo.analysis.diversity
+import python_dpo.analysis.driver
+import python_dpo.analysis.errors
+import python_dpo.analysis.failures
+import python_dpo.analysis.ingest
+import python_dpo.analysis.models
+import python_dpo.analysis.outcomes
+import python_dpo.analysis.recommend
+import python_dpo.analysis.refinement
+import python_dpo.analysis.report
+import python_dpo.analysis.run_repository
+import python_dpo.analysis.taxonomy
+import python_dpo.analysis.training_curve
 import python_dpo.candidates
 import python_dpo.cli
 import python_dpo.config

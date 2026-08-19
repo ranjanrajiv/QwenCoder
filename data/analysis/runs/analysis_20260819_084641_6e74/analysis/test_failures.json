@@ -1,0 +1,93 @@
+[
+  {
+    "base_failure_rate": 1.0,
+    "base_failures": 10,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 1.0,
+    "dpo_failures": 10,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": true,
+    "problem_id": "p002",
+    "test_case_id": "p002_t002"
+  },
+  {
+    "base_failure_rate": 1.0,
+    "base_failures": 10,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 1.0,
+    "dpo_failures": 10,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": true,
+    "problem_id": "p002",
+    "test_case_id": "p002_t005"
+  },
+  {
+    "base_failure_rate": 1.0,
+    "base_failures": 10,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 1.0,
+    "dpo_failures": 10,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": true,
+    "problem_id": "p002",
+    "test_case_id": "p002_t006"
+  },
+  {
+    "base_failure_rate": 1.0,
+    "base_failures": 10,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 1.0,
+    "dpo_failures": 10,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": true,
+    "problem_id": "p002",
+    "test_case_id": "p002_t007"
+  },
+  {
+    "base_failure_rate": 0.5,
+    "base_failures": 5,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 0.5,
+    "dpo_failures": 5,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": true,
+    "problem_id": "p004",
+    "test_case_id": "p004_t002"
+  },
+  {
+    "base_failure_rate": 0.3,
+    "base_failures": 3,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 0.4,
+    "dpo_failures": 4,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": false,
+    "problem_id": "p004",
+    "test_case_id": "p004_t008"
+  },
+  {
+    "base_failure_rate": 0.1,
+    "base_failures": 1,
+    "base_runs": 10,
+    "base_specific": false,
+    "dpo_failure_rate": 0.0,
+    "dpo_failures": 0,
+    "dpo_runs": 10,
+    "dpo_specific": false,
+    "hard_test": false,
+    "problem_id": "p005",
+    "test_case_id": "p005_t005"
+  }
+]

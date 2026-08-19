@@ -1,11 +1,9 @@
 # The Stage 12 reference experiment (spec section 8), extended with the hypothesis and
 # success-criteria block spec section 58 asks every experiment to carry.
 #
-# `error_analysis` ships disabled: Stage 11 (src/python_dpo/analysis/) does not exist in
-# this codebase yet. It is fully registered in the pipeline graph with its real dependency
-# edges -- see .claude/plans/12_pipeline_orchestration_and_productionization_plan.md's
-# decision 1 -- so enabling it raises a clear "not implemented" error rather than silently
-# skipping real work. `packaging` (Phase 3 of that same plan) is implemented and enabled.
+# All nine stages are implemented and enabled. `error_analysis` (Stage 11) is pure
+# computation over the artifacts the earlier stages persisted -- no model, no GPU, no
+# Docker -- and emits next_experiment.yaml without retraining anything.
 #
 # Every value below is overridable per-invocation with `--set stage.key=value`, and the
 # whole file is overridable with `--config`; this file is the shipped default, not the
@@ -59,7 +57,7 @@ model_evaluation:
   num_samples: 10
 
 error_analysis:
-  enabled: false  # Stage 11 not implemented yet
+  enabled: true
 
 packaging:
   enabled: true

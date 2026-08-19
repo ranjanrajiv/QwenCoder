@@ -1,0 +1,70 @@
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 1, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 3, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 4, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 7, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 8, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p001", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 0, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 1, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 2, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 3, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 4, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 5, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 6, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 7, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 8, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p002", "sample_index": 9, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 4}, "tests_passed": 3, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 1, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 3, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 4, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 7, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 8, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p003", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p004", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p004", "sample_index": 1, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 2}, "tests_passed": 6, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p004", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p004", "sample_index": 3, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 2}, "tests_passed": 6, "tests_total": 8}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p004", "sample_index": 4, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 2}, "tests_passed": 6, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p004", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p004", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p004", "sample_index": 7, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 2}, "tests_passed": 6, "tests_total": 8}
+{"category": "assertion_failure", "model_variant": "dpo", "passed": false, "problem_id": "p004", "sample_index": 8, "subcategory": "AssertionError", "subcategory_counts": {"AssertionError": 1}, "tests_passed": 7, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p004", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 1, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 3, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 4, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 7, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 8, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p005", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 8, "tests_total": 8}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 1, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 3, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 4, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 7, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 8, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p006", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 0, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 1, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 2, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 3, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 4, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 5, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 6, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 7, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 8, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}
+{"category": "none", "model_variant": "dpo", "passed": true, "problem_id": "p009", "sample_index": 9, "subcategory": "none", "subcategory_counts": {}, "tests_passed": 7, "tests_total": 7}

@@ -243,4 +243,6 @@ data/training/runs/*/adapter/tokenizer.json
 !data/model_evaluations/runs/*/logs/*.log
 # Same for a Stage 12 experiment run's per-stage and overall logs.
 !data/experiments/runs/*/logs/*.log
+# Same for a Stage 11 analysis run's log.
+!data/analysis/runs/*/logs/*.log
 !data/**/.gitkeep
