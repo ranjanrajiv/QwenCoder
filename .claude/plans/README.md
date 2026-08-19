@@ -215,3 +215,40 @@ plumbing, and the finding that a new inference layer is unavoidable because
 `training/verify.py` supports adapters but is greedy-only and unseeded. pass@k, bootstrap
 and McNemar are hand-rolled in pure stdlib, adding no dependencies.
 **Approved but not yet implemented.**
+
+### `12_pipeline_orchestration_and_productionization_plan.md`
+
+The implementation plan for Stage 12 — end-to-end pipeline orchestration, model packaging
+and productionization — derived from
+[`.claude/specs/12_pipeline_orchestration_and_productionization.md`](../specs/12_pipeline_orchestration_and_productionization.md)
+and confirmed with the user before implementation started. It turns eleven stage-shaped CLI
+command groups into a single reproducible experiment: a new `src/python_dpo/pipeline/`
+package with a `PipelineOrchestrator`, a nine-stage dependency graph, an immutable resolved
+configuration, per-stage state and manifests, a derived cache with automatic invalidation
+cascade, resume/retry/force/dry-run, signal handling, artifact hashing and lineage, plus a
+new `src/python_dpo/packaging/` package that packages the LoRA adapter, verifies it by
+generating Python and executing it through the Stage 5 sandbox, and registers it in a local
+model registry that never promotes automatically.
+
+Its blocking finding is that **Stage 11 does not exist** — `src/python_dpo/analysis/` is
+absent and only its plan is committed — so `error_analysis` ships as a registered but
+disabled stage whose adapter fails loudly if enabled and whose state is persisted as
+`SKIPPED` with a reason, rather than being silently omitted. Two further findings reshape
+the spec's literal text: the spec's nine stages do not map 1:1 onto the repo's commands
+(Stage 6 executes *and* runs pytest, Stage 7 judges, so `candidate_execution` → Stage 6 and
+`candidate_evaluation` → Stage 7), and `problem_generation` is not generation at all — Stage
+2's catalog is ten hand-authored problems, so the spec's `problem_count: 1000` is
+unimplementable and `problem_count` can only select a subset.
+
+It records the four approved decisions (Stage 11 registered-but-disabled; stage artifacts
+staying in their canonical `data/<stage>/runs/` stores with the experiment directory holding
+manifests, SHA-256 pointers, logs, reports and the packaged model rather than duplicating
+gigabytes; the full spec executed in four phases with explicitly-optional capabilities
+deferred with reasoning; and two smoke tiers — an offline mock-model pipeline test in the
+default suite plus a real GPU/Docker `--smoke-test` whose artifacts are committed). It also
+resolves that the stage bodies currently buried in `cli.py`'s private helpers **move** into
+`pipeline/stages/` so the orchestrator and the CLI share one implementation rather than the
+orchestrator shelling out or faking an `argparse.Namespace`, and that the git SHA is recorded
+in the manifest but deliberately excluded from the cache key, since including it would
+invalidate every stage on every commit and defeat the spec's own cache-invalidation
+requirement. **Approved but not yet implemented.**

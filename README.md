@@ -39,14 +39,15 @@ QLoRA + DPO Training
 Base vs DPO Model Evaluation
 ```
 
-The first ten stages are implemented. Everything beyond model evaluation (stages 11-12)
-is still a placeholder that documents the intended shape of the pipeline.
+The first ten stages are implemented. Stages 11 (error analysis and iteration) and 12
+(pipeline orchestration and productionization) are specified and planned but not yet
+implemented.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". Ten have been specified and implemented so
-far:
+states its position, e.g. "Stage 3 of 12". All twelve have been specified and ten
+implemented so far:
 
 | Stage | Delivers | Status |
 |-------|----------|--------|
@@ -60,12 +61,17 @@ far:
 | 8 — Preference Pair Generation | `{prompt, chosen, rejected}` DPO pairs, selection policies, dedup, problem-level splits | Done |
 | 9 — DPO/QLoRA Training | 4-bit NF4 QLoRA + TRL DPOTrainer, preflight, metrics, adapter reload | Done |
 | 10 — Base vs DPO Model Evaluation | Held-out benchmark, paired generation, pass@k, bootstrap CIs, win/tie/loss | Done |
-| 11–12 — Beyond evaluation | Not yet specified | Not started |
+| 11 — Error Analysis and Iteration | Error taxonomy, improvement/regression classification, data-gap analysis, evidence-backed recommendations | Specified and planned |
+| 12 — Pipeline Orchestration and Productionization | Experiment config, stage graph, caching, resume, lineage, model packaging, registry | Specified and planned |
 
-Stages 11–12 aren't specified yet, so the table above intentionally doesn't assign them
-individual names — the pipeline diagram lists the phases in order, but the exact stage
-boundaries will be set when each spec is written. Nothing in that range is implemented;
-see `CLAUDE.md`'s Scope Control rule.
+Stage 11 is specified ([`.claude/specs/11_error_analysis_and_iteration.md`](.claude/specs/11_error_analysis_and_iteration.md))
+and planned ([`.claude/plans/11_error_analysis_and_iteration_plan.md`](.claude/plans/11_error_analysis_and_iteration_plan.md)),
+and Stage 12 likewise
+([`.claude/specs/12_pipeline_orchestration_and_productionization.md`](.claude/specs/12_pipeline_orchestration_and_productionization.md),
+[`.claude/plans/12_pipeline_orchestration_and_productionization_plan.md`](.claude/plans/12_pipeline_orchestration_and_productionization_plan.md)),
+but no Stage 11 or Stage 12 code exists yet. Stage 12's plan depends on Stage 11: it ships
+`error_analysis` as a registered-but-disabled stage until `src/python_dpo/analysis/` lands.
+See `CLAUDE.md`'s Scope Control rule.
 
 ## Repository layout
 
