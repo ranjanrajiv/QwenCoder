@@ -1,0 +1,17 @@
+{
+  "seed": 42,
+  "split_ratios": {
+    "test": 0.1,
+    "train": 0.8,
+    "validation": 0.1
+  },
+  "splitter_version": "v1",
+  "test_problem_ids": [
+    "p010"
+  ],
+  "train_problem_ids": [
+    "p005",
+    "p007"
+  ],
+  "validation_problem_ids": []
+}

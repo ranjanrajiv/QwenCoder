@@ -1,0 +1,24 @@
+{
+  "cache_key": "44535fe49a01e2c8031d5972816271516017e20b62126b0b464749ecbe65955f",
+  "code_version": "0.12.1",
+  "configuration_hash": "c550ea48a48d20799357bef6ec519032a9ba8e84d4ab85a6ebdd71fdb82670cf",
+  "end_time": "2026-08-19T08:11:49Z",
+  "error": {
+    "error_type": "StageFailedError",
+    "input_artifacts": {},
+    "message": "the validation split is empty. Stage 8's problem-level splitter yields no validation problems below ten pair-bearing problems; pass --allow-small-dataset to train without evaluation, or generate a dataset whose split ratios leave a validation problem",
+    "stack_trace": null,
+    "stage": "dpo_training",
+    "timestamp": "2026-08-19T08:11:49Z"
+  },
+  "input_artifacts": {
+    "preferences": "eb95a00f4c1a1d1d89327001912343269ff0a02ae442ba94d21a1df9272e4228"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "dpo_training",
+  "stage_run_id": "exp_20260819_080140_46cc_dpo_training",
+  "start_time": "2026-08-19T08:11:49Z",
+  "status": "FAILED"
+}

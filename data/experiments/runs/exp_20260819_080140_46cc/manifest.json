@@ -1,0 +1,20 @@
+{
+  "configuration_hash": "137a51fd5cd3f2089842cc084aff72230b6b83c7c87844b0162b23daf1c27c0e",
+  "dataset_versions": {},
+  "end_time": "2026-08-19T08:11:50Z",
+  "experiment_name": "qwen-python-dpo-v1",
+  "experiment_run_id": "exp_20260819_080140_46cc",
+  "final_evaluation": null,
+  "final_model": null,
+  "git_commit": {
+    "branch": "main",
+    "dirty": false,
+    "sha": "f88519604a85d2fa3227f0dfa038f6c89744a650"
+  },
+  "manifest_version": "experiment_manifest_v1",
+  "model_versions": {},
+  "recommendation": null,
+  "stage_runs": {},
+  "start_time": "2026-08-19T08:01:45Z",
+  "status": "failed"
+}
