@@ -13,6 +13,7 @@ from python_dpo.generation import (
     PROMPT_VERSION,
     STRATEGIES,
     CandidateGenerator,
+    compute_candidate_seed,
     resolve_strategies,
 )
 from python_dpo.models import GenerationConfig, InferenceError, MockModelClient, ModelLoadError
@@ -105,7 +106,20 @@ def test_one_problem_five_candidates(tmp_path, problem):
     assert all(r.function_name_valid for r in records)
     assert all(r.prompt_version == PROMPT_VERSION for r in records)
     assert all(r.run_id == manifest.run_id for r in records)
-    assert all(r.generation_config == GenerationConfig().to_dict() for r in records)
+    # Every decoding parameter except the seed comes straight from the run's config; the
+    # seed is per candidate (see generation.seeds), so each record carries the seed that
+    # actually produced it rather than the run's base seed.
+    base = GenerationConfig().to_dict()
+    assert all(
+        {k: v for k, v in r.generation_config.items() if k != "seed"}
+        == {k: v for k, v in base.items() if k != "seed"}
+        for r in records
+    )
+    assert all(
+        r.generation_config["seed"]
+        == compute_candidate_seed(base["seed"], r.problem_id, r.generation_index)
+        for r in records
+    )
     assert all(r.schema_version == "2.0" for r in records)
     assert all(r.code_sha256 == sha256_text(r.code) for r in records)
     assert all(r.attempt == 1 for r in records)

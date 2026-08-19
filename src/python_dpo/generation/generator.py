@@ -30,6 +30,7 @@ section 31).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ from ..problems.models import Problem
 from ..runs.models import RunManifest
 from .code_extractor import extract_code
 from .prompt_builder import build_prompt
+from .seeds import compute_candidate_seed
 from .validation import check_function_name, check_syntax
 
 logger = logging.getLogger("python_dpo.generation")
@@ -107,7 +109,6 @@ class CandidateGenerator:
         existing, code_index, _ = self._repository.load_index()
 
         generated = skipped = failed = duplicates = retries = 0
-        config_dict = manifest.generation_config
 
         for problem in problems:
             for index in range(1, count + 1):
@@ -130,6 +131,20 @@ class CandidateGenerator:
                 prompt_sha256 = sha256_text(prompt)
                 logger.debug("Prompt for %s:\n%s", candidate_id, prompt)
 
+                # One seed per candidate, derived from the run's configured base seed.
+                # Without this every candidate for a problem reseeds the sampler to the
+                # same state and comes back byte-identical, leaving preference-pair
+                # construction nothing to compare (see generation.seeds).
+                candidate_config = dataclasses.replace(
+                    generation_config,
+                    seed=compute_candidate_seed(generation_config.seed, problem.id, index),
+                )
+                # Recorded per candidate rather than copying the manifest's base config:
+                # GenerationConfig's contract is that a candidate's stored parameters are
+                # enough to reconstruct that exact generation, which the base seed alone
+                # no longer is.
+                candidate_config_dict = candidate_config.to_dict()
+
                 # Persisted before inference so a failed or interrupted generation still
                 # has its exact prompt recoverable (spec 04 section 31).
                 self._repository.append_prompt(
@@ -147,7 +162,7 @@ class CandidateGenerator:
                 raw = None
                 for attempt in range(1, max_attempts + 1):
                     try:
-                        raw = self._client.generate(prompt, generation_config)
+                        raw = self._client.generate(prompt, candidate_config)
                         break
                     except ModelLoadError as exc:
                         # Run-level: no candidate in this run can succeed, so a single
@@ -247,7 +262,7 @@ class CandidateGenerator:
                     syntax_error=syntax.error_message,
                     function_name_valid=function_name_valid,
                     duplicate_of=duplicate_of,
-                    generation_config=config_dict,
+                    generation_config=candidate_config_dict,
                     created_at=utc_now_iso(),
                     attempt=attempt,
                 )

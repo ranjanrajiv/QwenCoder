@@ -12,6 +12,7 @@ from .prompt_builder import (
     build_canonical_prompt,
     build_prompt,
 )
+from .seeds import compute_candidate_seed
 from .strategies import (
     STRATEGIES,
     STRATEGY_INSTRUCTIONS,
@@ -36,6 +37,7 @@ __all__ = [
     "build_prompt",
     "check_function_name",
     "check_syntax",
+    "compute_candidate_seed",
     "extract_code",
     "instruction_for",
     "resolve_strategies",
