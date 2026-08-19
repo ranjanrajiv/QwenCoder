@@ -17,8 +17,15 @@ from python_dpo.pipeline.stages._context import StageResult
 @pytest.fixture
 def project_config(tmp_path) -> Config:
     """A real, valid Config (model/generation/sandbox/evaluation/preferences all parsed
-    from the actual root config.yaml) with every data path redirected under ``tmp_path``,
-    so pipeline tests never touch the real ``data/`` directory."""
+    from the actual root config.yaml) relocated entirely under ``tmp_path``.
+
+    ``project_root`` is redirected as well as ``paths``, not just the latter. Several
+    locations are derived from ``project_root`` rather than from a ``paths`` entry --
+    ``benchmarks/`` (preflight, the model_evaluation stage) and ``models/registry.json``
+    (packaging, the experiment report) -- so leaving it pointing at the real checkout let
+    tests write into tracked files. That is what made ``benchmarks/*/manifest.json`` show
+    up modified after every test run.
+    """
     base = Config.load()
     paths = Paths(
         raw=tmp_path / "raw",
@@ -34,7 +41,7 @@ def project_config(tmp_path) -> Config:
         reports=tmp_path / "reports",
     )
     paths.ensure_exists()
-    return dataclasses.replace(base, paths=paths)
+    return dataclasses.replace(base, paths=paths, project_root=tmp_path)
 
 
 @pytest.fixture

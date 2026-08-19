@@ -220,15 +220,22 @@ def test_resume_of_a_completed_experiment_raises(project_config, experiment_repo
 
 
 def test_experiment_manifest_records_git_commit(project_config, experiment_repo, monkeypatch):
+    """Git capture is stubbed rather than read from the ambient checkout: `project_config`
+    is rooted at a tmp_path that is not a repository, and asserting only that a `sha` key
+    exists would pass even when its value is None. Stubbing pins the value that actually
+    reaches the manifest."""
     calls: list[str] = []
     install_stub_adapter(monkeypatch, "problem_dataset", calls=calls)
+    monkeypatch.setattr(
+        "python_dpo.pipeline.orchestrator.capture_git_info",
+        lambda root: {"sha": "abc1234", "branch": "main", "dirty": False},
+    )
     experiment = ExperimentConfig.from_mapping(
         full_experiment_mapping(enabled={n: False for n in STAGE_NAMES if n != "problem_dataset"})
     )
     orchestrator = make_orchestrator(project_config, experiment_repo)
     manifest = orchestrator.run(experiment)
-    assert manifest.git_commit is not None
-    assert "sha" in manifest.git_commit
+    assert manifest.git_commit == {"sha": "abc1234", "branch": "main", "dirty": False}
 
 
 def test_run_requires_an_experiment_unless_resuming(project_config, experiment_repo):
