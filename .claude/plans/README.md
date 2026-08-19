@@ -216,6 +216,50 @@ plumbing, and the finding that a new inference layer is unavoidable because
 and McNemar are hand-rolled in pure stdlib, adding no dependencies.
 **Approved but not yet implemented.**
 
+### `11_error_analysis_and_iteration_plan.md`
+
+The implementation plan for Stage 11 — error analysis, preference refinement and iterative
+improvement — derived from
+[`.claude/specs/11_error_analysis_and_iteration.md`](../specs/11_error_analysis_and_iteration.md)
+and confirmed with the user before implementation started. Stage 10 answered *"did DPO make
+Qwen better at Python?"* with a number; Stage 11 asks what to change next. A new
+`src/python_dpo/analysis/` package classifies every failure against a deterministic
+taxonomy, sorts problems into improvements and regressions, computes test-level failure
+frequencies, diversity and category/difficulty coverage gaps, and emits an evidence-backed
+recommendation set plus a refined preference dataset — with **no LLM judge anywhere** (§12,
+§295 forbid it as the primary classifier), correlation never stated as causation (§38, a
+wording rule enforced in `report.py` and asserted in tests), and no automatic retraining
+(§5, §113): the stage emits `next_experiment.yaml` and stops. It is the first stage in the
+back half of the pipeline that is **pure computation over persisted artifacts** — no model,
+no GPU, no Docker, no new dependencies — so the whole thing runs in the default offline
+suite with no new markers.
+
+Its blocking finding is that the real analysis is degenerate before it starts:
+`eval_20260818_155511_1633` has **0 DPO wins, 0 losses, 7 ties**, both `improvements.jsonl`
+and `regressions.jsonl` are 0 bytes, and `failure_analysis.json` has exactly one non-zero
+bucket. The honest iteration decision is therefore `insufficient_evidence`, and the plan has
+it *gate* the others rather than reporting the better-supported `refine_data` as a headline
+over a 7-problem benchmark with a 4.3pp-wide CI. The one genuinely informative finding is
+structural rather than statistical: only `p007`/`p008` were ever trained on (categories
+`edge_cases`, `exceptions`), and the benchmark's seven categories share **zero** overlap with
+them, so every benchmark category scores `coverage_ratio = 0.00`. Two further findings shape
+the schema — `coverage_ratio` has degenerate cases JSON cannot represent (`inf` when a
+category is absent from the benchmark, `nan` when absent from both), so it is `float | None`
+beside an explicit five-value verdict enum; and the hierarchical taxonomy is reachable only
+through `evaluations/_sandbox/<variant>/test_results.jsonl`, which the already-public
+`sandbox_repository()` exposes, so §45–§49 need no change to Stage 10.
+
+It records three approved decisions (defer every explicitly-optional capability — LLM
+semantic analysis, `HardProblemGenerator`, and flaky-test detection, the last because it
+would turn a pure-computation stage into a Docker-dependent one for a property this dataset
+cannot exhibit; emit both a re-versioned `refined_preferences.jsonl` carrying
+`parent_preference_run_id` and the three example datasets, never overwriting Stage 8; and
+analyse the real run reporting `insufficient_evidence` rather than committing a fabricated
+one beside it, with the improvement, regression, mode-collapse and non-degenerate coverage
+paths exercised by synthetic fixtures instead). It also claims `analysis` as the **tenth**
+`paths` entry — a wiring point Stage 12's plan shares, since that plan claims `experiments`
+as the same kind of addition. **Approved but not yet implemented.**
+
 ### `12_pipeline_orchestration_and_productionization_plan.md`
 
 The implementation plan for Stage 12 — end-to-end pipeline orchestration, model packaging
