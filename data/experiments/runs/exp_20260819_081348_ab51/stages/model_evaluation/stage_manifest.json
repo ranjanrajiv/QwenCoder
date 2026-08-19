@@ -1,0 +1,24 @@
+{
+  "cache_key": "dc98a621c9554781a3f58c5ce19b3ce34c6e3d4c693676a3bfea93dbc784f058",
+  "code_version": "0.12.1",
+  "configuration_hash": "d211e2bf818bb588139a91b8c589444aa6e3b941da419e3e6aa66186b9476305",
+  "end_time": "2026-08-19T08:15:31Z",
+  "error": {
+    "error_type": "StageFailedError",
+    "input_artifacts": {},
+    "message": "benchmark 'python_eval_v1' overlaps the preference train split: p005. The evaluation benchmark must be completely independent of every problem used to create DPO preference pairs",
+    "stack_trace": null,
+    "stage": "model_evaluation",
+    "timestamp": "2026-08-19T08:15:31Z"
+  },
+  "input_artifacts": {
+    "adapter": "c3379d227e83cdfd3922b213a833f5d5a69a31c84acf21a5632dd7de75efc163"
+  },
+  "manifest_version": "stage_manifest_v1",
+  "output_artifacts": {},
+  "reused": false,
+  "stage_name": "model_evaluation",
+  "stage_run_id": "exp_20260819_081348_ab51_model_evaluation",
+  "start_time": "2026-08-19T08:15:31Z",
+  "status": "FAILED"
+}

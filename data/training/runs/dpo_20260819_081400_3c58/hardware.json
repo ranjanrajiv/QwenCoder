@@ -1,0 +1,12 @@
+{
+  "bf16_supported": true,
+  "bitsandbytes_available": true,
+  "compute_capability": "8.6",
+  "cuda_available": true,
+  "cuda_version": "13.0",
+  "device_count": 1,
+  "free_vram_bytes": 11853234176,
+  "gpu_name": "NVIDIA GeForce RTX 3060",
+  "torch_version": "2.13.0+cu130",
+  "total_vram_bytes": 12478906368
+}

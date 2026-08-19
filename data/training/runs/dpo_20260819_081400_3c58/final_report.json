@@ -1,0 +1,35 @@
+{
+  "adapter_path": "/home/rajiv/QwenCoder/QwenCoder/data/training/runs/dpo_20260819_081400_3c58/adapter",
+  "adapter_reload_ok": true,
+  "checkpoint_path": "/home/rajiv/QwenCoder/QwenCoder/data/training/runs/dpo_20260819_081400_3c58/checkpoints/checkpoint-2",
+  "compute_dtype": "bfloat16",
+  "created_at": "2026-08-19T08:15:30Z",
+  "effective_batch_size": 8,
+  "epochs": 1.0,
+  "experiment_name": "qwen-python-dpo",
+  "final_eval_loss": null,
+  "final_report_version": "1.0",
+  "final_train_loss": 0.6962041854858398,
+  "model_name": "Qwen/Qwen2.5-Coder-3B-Instruct",
+  "model_revision": null,
+  "number_of_examples": {
+    "train": 10,
+    "validation": 0
+  },
+  "optimizer": "paged_adamw_8bit",
+  "peak_gpu_memory_bytes": 4886833664,
+  "preference_run_id": "pref_20260819_081144_5126",
+  "reward_metrics": {
+    "rewards/accuracies": 0.0,
+    "rewards/chosen": -0.017737579997628927,
+    "rewards/margins": -0.012176323682069778,
+    "rewards/rejected": -0.0055612565483897924
+  },
+  "status": "completed",
+  "steps": 2,
+  "total_parameters": 1706045440,
+  "trainable_parameters": 7372800,
+  "trainable_percentage": 0.432157,
+  "training_duration_seconds": 90.67694722599845,
+  "training_run_id": "dpo_20260819_081400_3c58"
+}
