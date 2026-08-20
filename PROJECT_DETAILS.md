@@ -248,23 +248,188 @@ structures that make the careless thing impossible.
 
 ### 3. Untrusted code is untrusted
 
-The model writes code, and that code gets run. It could delete files or hang forever — not
-maliciously, just because the model made a mistake. So generated code only ever executes
-inside a locked-down container: no network, no access to the host filesystem, a non-root
-user, and hard limits on time, memory and processes.
+The model writes code, and that code gets run. Not eventually — running it is the entire
+point, because execution is what produces the training signal.
+
+The threat is rarely malice. It is that a model asked to write a sorting function writes an
+infinite loop, or allocates until the machine swaps, or writes a file where it shouldn't.
+A model told to solve a problem it cannot solve will do *something*, and "something" is
+unbounded.
+
+#### The boundary
+
+Every generated candidate runs inside a container built with a fixed argument list:
+
+| Flag | What it removes |
+|---|---|
+| `--network none` | No network at all. Nothing can phone home, fetch, or exfiltrate. |
+| `--cap-drop ALL` | Every Linux capability dropped — no raw sockets, no mounting, no ptrace. |
+| `--security-opt no-new-privileges` | A process cannot gain privileges it did not start with. |
+| `--user <non-root>` | Not root, even inside the container. |
+| `--read-only` + `--tmpfs` | Root filesystem is read-only; the only writable space is a small, bounded tmpfs that vanishes with the container. |
+| `--pids-limit` | Fork bombs hit a ceiling. |
+| `--cpus`, `--memory`, `--memory-swap` | Bounded CPU and memory, with swap pinned to the memory limit so it cannot be dodged by swapping. |
+| a wall-clock timeout | Infinite loops die. |
+
+Only the job's own workspace is mounted, and the working directory is set to it.
+
+#### Two properties that matter more than the flags
+
+**Candidate code never becomes part of a command.** The generated source is written to a
+file, and the container command is a fixed argument list referencing that file by path.
+`shell=True` appears nowhere in the source. So there is no string interpolation of
+model-written text into anything that gets executed as a command — the classic injection
+route simply does not exist.
+
+**Generated tests are treated as untrusted too.** This is the non-obvious one. The pipeline
+builds a pytest file around each candidate. That file's literals come from the problem's
+already-validated test data, never from the candidate — but it *runs in the same process as
+the candidate's code*. So the bundle is confined exactly like a bare candidate would be.
+Trusting the test file because "we wrote it" would hand the candidate a way out.
+
+#### The guarantees are tested, not asserted
+
+`tests/sandbox/test_sandbox_security.py` demonstrates each property against a real Docker
+daemon rather than documenting it: network disabled, non-root, capabilities dropped,
+privilege escalation blocked, read-only root with a bounded tmpfs, resource limits actually
+enforced, swap pinned, only the workspace mounted, the command a fixed argument list, and a
+parametrised test asserting that a list of dangerous flags never appears.
+
+#### The one deliberate exception
+
+**Reference solutions** — the trusted answers shipped with the problem catalog — execute
+in-process, without a container. They are written by hand, reviewed like any other source
+file, and live in the repository. That exception is confined behind a protocol boundary
+(`InProcessReferenceExecutor`), so model-written code cannot reach it. It is also the thing
+that would have to change first if the catalog ever grew by importing problems from
+elsewhere: a thousand third-party reference solutions could not honestly be called reviewed.
+
+Inspecting a candidate is different from running one. The pipeline parses generated code
+into a syntax tree to check whether it is valid Python and whether it defines the expected
+function. Building a syntax tree does not import, evaluate, or execute anything, which is
+why that check is allowed to touch untrusted code directly while everything else is not.
 
 ### 4. Everything must be traceable
 
-If a trained model turns out good or bad, you need to know exactly what produced it — which
-comparisons trained it, which test results produced those comparisons, which attempts
-produced those results, which problems produced those attempts. Every step records its
-inputs and outputs with checksums, and the full chain is stored as a fact rather than
-reconstructed by hand.
+Six months after a training run, someone asks a simple question: *what exactly produced this
+model?* Without an answer recorded at the time, you are reconstructing from memory and
+directory timestamps — and memory reliably favours the version of events that explains the
+result you got.
+
+#### The chain, recorded rather than reconstructed
+
+Every trained adapter traces back through the full pipeline. From a real committed run:
+
+```
+model_adapter
+  ├── training_run_id       dpo_20260819_061731_8314
+  ├── preference_run_id     pref_20260819_061728_849c
+  ├── ranking_run_id        rank_20260819_061722_9de4
+  ├── evaluation_run_id     eval_20260819_061432_5204
+  ├── candidate_run_id      run_20260819_060953_1cba
+  └── problem_dataset_run_id …
+```
+
+Before this existed, that chain was implicit — you could follow it by opening one manifest,
+reading an id, opening the next. Nothing recorded it, nothing verified it, and nothing would
+have noticed if a dataset were regenerated underneath the adapter. It is now written to
+`lineage.json` as a fact.
+
+#### Content, not just names
+
+Names are not enough, because a file can change while keeping its name. So artifacts are
+identified by **SHA-256 of their contents**:
+
+- Each candidate's code is hashed, which is also how duplicate attempts are detected.
+- Each training split is hashed, and the hashes are recorded on the training manifest — so
+  "the data this model trained on" is a checkable claim rather than a recollection.
+- The benchmark manifest carries a hash of the problems it selects, so silent drift is
+  detectable.
+- The experiment's `artifacts.json` records every stage output by path, hash and size.
+
+This is also what makes the cache trustworthy. A stage is reused only when its inputs' *content
+hashes* match — not when its name matches, and not on a timestamp.
+
+#### Writes that survive a crash
+
+Reproducibility is worthless if an interrupted run leaves a half-written file that looks
+complete. Every JSON write goes: write to a temporary file → `fsync` it → `os.replace` into
+position → `fsync` the directory. `os.replace` is atomic, so a reader sees either the old
+file or the new one, never a partial one. Append-only logs fsync each line, and the reader
+treats a torn final line as an error rather than skipping it.
+
+That is what makes resume safe: a run can be interrupted at any point and continued, because
+what is on disk is always a consistent prefix of what was intended.
+
+#### Recording what could not be reproduced
+
+Traceability includes being honest about its own limits. Each run captures the environment
+it ran in — Python, CUDA, GPU, library versions, Docker — and the git commit, along with
+whether the working tree was **dirty** at the time. A result produced from uncommitted
+changes is flagged as such rather than silently attributed to the last commit.
+
+Hostnames and usernames are deliberately never captured. Provenance should identify the
+software and the data, not the person.
 
 ### 5. Nothing gets promoted automatically
 
-A trained model is registered as "experimental" and stays there. Marking it as good requires
-a human to do so explicitly, backed by a passing evaluation record.
+The failure this prevents is quiet and common: a model scores well, someone points something
+at it "just to try," and months later it is load-bearing. Nobody decided that. It accumulated.
+
+#### Packaging can only ever register one status
+
+When a trained adapter is packaged, it enters the registry as `EXPERIMENTAL`. Not
+"probably fine," not "good enough" — the packaging code is *incapable* of writing any other
+status. Registering anything higher requires a separate, explicit command.
+
+#### The path upward has no shortcut
+
+```
+EXPERIMENTAL ──> VALIDATED ──> RECOMMENDED ──> RETIRED
+     │                │
+     └──> RETIRED     └──> RETIRED
+     └──> REJECTED    └──> REJECTED
+```
+
+`RECOMMENDED` is reachable **only through** `VALIDATED`. There is no edge from
+`EXPERIMENTAL` straight to `RECOMMENDED`, so a model cannot be recommended without someone
+having first looked at it and said so. `RETIRED` and `REJECTED` are terminal — an
+un-retirement is a new entry, not a quiet reversal.
+
+#### And the top step demands evidence
+
+Promoting to `RECOMMENDED` requires an evaluation run id *and* a passing success-criteria
+record. Supply neither and it refuses:
+
+```
+cannot promote 'exp_...' to RECOMMENDED without an evaluation_run_id
+
+cannot promote 'exp_...' to RECOMMENDED: evaluation run 'eval_...'
+did not pass its recorded success criteria
+```
+
+The command reads the pass/fail verdict out of the evaluation report on disk rather than
+accepting the caller's assertion that the model is good. The person promoting cannot simply
+believe it.
+
+#### Verification is a precondition, not a checkbox
+
+Before anything reaches the registry at all, the packaged model must prove it works: it is
+loaded, asked to write a function, and **the code it produces is executed through the
+sandbox**. Only if those tests pass is the model registered.
+
+There is no flag to skip this. A verification failure raises before any registry entry is
+written, so an unverified package cannot exist in the registry even in a broken state.
+
+#### Why this belongs in a philosophy section
+
+Every other guard here protects a *number* from being wrong. This one protects a *decision*
+from being made by default.
+
+The connection to point 2 is direct: automatic promotion is the purest form of fooling
+yourself, because nobody ever consciously concluded anything. Requiring an explicit act —
+with evidence the tool checks itself — means there is always a person and a record behind
+the claim that a model is good.
 
 ---
 
