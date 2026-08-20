@@ -3,51 +3,80 @@
 A preference-data generation pipeline for DPO (Direct Preference Optimization)
 fine-tuning of a Qwen Coder model on Python programming tasks.
 
-**Current status: Stage 10 — Base vs DPO Model Evaluation.** The foundation (packaging,
-CLI, logging, typed configuration), the ground-truth layer (10 curated Python problems
-with trusted reference solutions and executable tests), candidate generation with a Qwen
-Coder model, a reliable per-run artifact store (manifests, SHA-256 hashes, atomic
-persistence, resume, retry, integrity validation), an isolated Docker execution sandbox, a
-pytest-based candidate test executor, deterministic candidate ranking, DPO preference
-pair generation, QLoRA/DPO training, and base-vs-DPO model evaluation are all in place.
-**Generated code, and the tests generated for it, are executed only inside the sandbox,
-never on the host**; ranking, preference-pair generation and training never execute
-candidate code at all, and Stage 10 reuses the Stage 5/6 sandbox unmodified rather than
-adding a second execution path.
+**Current status: all 12 stages implemented.** The pipeline runs end to end from a curated
+problem catalog through candidate generation, sandboxed execution, ranking, preference-pair
+construction, QLoRA/DPO training, held-out evaluation, error analysis, and a packaged,
+verified model — driven either stage by stage or by a single `experiment run` command.
 
-## Planned pipeline
+New here? Read [`PROJECT_DETAILS.md`](PROJECT_DETAILS.md) first — it explains what the
+project does and why it is shaped this way, in plain language and without mathematics. This
+file is the reference: what each stage delivers, how to run it, and what it persists.
+
+### What it does
+
+An AI model that writes code learned what code *looks like*; nobody checked whether it
+**runs**. This project closes that gap without anyone hand-writing correct answers:
+
+1. Give the model a problem, and let it write several attempts
+2. **Execute** each attempt against real tests, inside a locked-down container
+3. Pair a working attempt against a failing one from the same problem
+4. Fine-tune the model on those pairs — teaching by *comparison*, not correction
+5. Measure on held-out problems the model never trained on
+
+Step 2 is the pivot: "which attempt was better" is decided by running code, never by a human
+rater and never by an AI judge.
+
+### What shapes the code
+
+Two rules account for most of the structure.
+
+**Untrusted code stays untrusted.** Generated candidates, and the tests generated around
+them, execute **only inside the Stage 5 Docker sandbox, never on the host** — no network,
+all capabilities dropped, non-root, read-only root filesystem, and CPU/memory/PID/time
+caps. Ranking, preference generation, training and error analysis never execute candidate
+code at all, and Stages 10 and 12 reuse the Stage 5/6 sandbox unmodified rather than adding
+a second execution path.
+
+**The system refuses rather than flatters.** When measuring your own training, mistakes tend
+to produce *good-looking* wrong answers. So the pipeline stops instead: it will not train on
+an empty dataset, will not evaluate when a training problem has leaked into the benchmark,
+will not declare success on evidence too thin to support it, will not emit a recommendation
+without attached evidence, and will not promote a model automatically. Several of these have
+fired in practice on this repository's own data. See
+[`PROJECT_DETAILS.md`](PROJECT_DETAILS.md) for the reasoning behind each.
+
+## The pipeline
 
 ```
-Python Problems
+Python Problems                     Stage 2
       ↓
-Qwen Candidate Generation
+Qwen Candidate Generation           Stage 3
       ↓
-Candidate Persistence
+Candidate Persistence               Stage 4
       ↓
-Docker Sandbox
+Docker Sandbox                      Stage 5
       ↓
-pytest Evaluation
+pytest Evaluation                   Stage 6
       ↓
-Candidate Ranking
+Candidate Ranking                   Stage 7
       ↓
-Preference Pair Generation
+Preference Pair Generation          Stage 8
       ↓
-DPO Dataset
+QLoRA + DPO Training                Stage 9
       ↓
-QLoRA + DPO Training
-      ↓
-Base vs DPO Model Evaluation
+Base vs DPO Model Evaluation        Stage 10
+      ↓                    ↘
+Error Analysis          Model Packaging        Stages 11, 12
 ```
 
-The first ten stages are implemented. Stages 11 (error analysis and iteration) and 12
-(pipeline orchestration and productionization) are specified and planned but not yet
-implemented.
+Stage 1 is the foundation the rest sits on (packaging, CLI, logging, typed configuration).
+Stage 12 additionally wraps everything above into one orchestrated, cacheable, resumable
+command.
 
 ## Roadmap
 
 The full build is specified as 12 stages (`.claude/specs/`); each stage's own spec
-states its position, e.g. "Stage 3 of 12". All twelve have been specified and ten
-implemented so far:
+states its position, e.g. "Stage 3 of 12". All twelve are specified and implemented:
 
 | Stage | Delivers | Status |
 |-------|----------|--------|
@@ -61,17 +90,33 @@ implemented so far:
 | 8 — Preference Pair Generation | `{prompt, chosen, rejected}` DPO pairs, selection policies, dedup, problem-level splits | Done |
 | 9 — DPO/QLoRA Training | 4-bit NF4 QLoRA + TRL DPOTrainer, preflight, metrics, adapter reload | Done |
 | 10 — Base vs DPO Model Evaluation | Held-out benchmark, paired generation, pass@k, bootstrap CIs, win/tie/loss | Done |
-| 11 — Error Analysis and Iteration | Error taxonomy, improvement/regression classification, data-gap analysis, evidence-backed recommendations | Specified and planned |
-| 12 — Pipeline Orchestration and Productionization | Experiment config, stage graph, caching, resume, lineage, model packaging, registry | Specified and planned |
+| 11 — Error Analysis and Iteration | Error taxonomy, improvement/regression classification, data-gap analysis, evidence-backed recommendations | Done |
+| 12 — Pipeline Orchestration and Productionization | Experiment config, stage graph, caching, resume, lineage, model packaging, registry | Done |
 
-Stage 11 is specified ([`.claude/specs/11_error_analysis_and_iteration.md`](.claude/specs/11_error_analysis_and_iteration.md))
-and planned ([`.claude/plans/11_error_analysis_and_iteration_plan.md`](.claude/plans/11_error_analysis_and_iteration_plan.md)),
-and Stage 12 likewise
-([`.claude/specs/12_pipeline_orchestration_and_productionization.md`](.claude/specs/12_pipeline_orchestration_and_productionization.md),
-[`.claude/plans/12_pipeline_orchestration_and_productionization_plan.md`](.claude/plans/12_pipeline_orchestration_and_productionization_plan.md)),
-but no Stage 11 or Stage 12 code exists yet. Stage 12's plan depends on Stage 11: it ships
-`error_analysis` as a registered-but-disabled stage until `src/python_dpo/analysis/` lands.
-See `CLAUDE.md`'s Scope Control rule.
+Stage 12 shipped before Stage 11, so it initially carried `error_analysis` as a
+registered-but-disabled stage whose adapter raised a clear "not implemented" error rather
+than silently skipping. Stage 11 landed afterwards and that adapter is now real; the shipped
+experiment configs enable all nine pipeline stages.
+
+Each stage has an implementation report at the repository root
+([`02_PROBLEM_DATASET.md`](02_PROBLEM_DATASET.md) through
+[`12_PIPELINE_ORCHESTRATION_AND_PRODUCTIONIZATION.md`](12_PIPELINE_ORCHESTRATION_AND_PRODUCTIONIZATION.md))
+covering how it is built, what the real run found, and what that finding does and does not
+mean.
+
+### Honest status
+
+The apparatus is complete and verified end to end on real hardware. **It has not yet
+produced a meaningful model result, and it says so rather than pretending otherwise.**
+
+The catalog holds 10 problems. The model reliably solves 4 and reliably fails 3 — those
+seven yield no preference pairs, because five identical-quality attempts give nothing to
+compare. Only 3 sit at its competence boundary, and one of those is held out for evaluation.
+Stage 11 adds a sharper finding: the problems trained on and the problems evaluated on share
+**no categories at all**, so nothing trained was ever measured.
+
+The fix is more problems, not more code. See
+[`PROJECT_DETAILS.md`](PROJECT_DETAILS.md#where-it-actually-stands).
 
 ## Repository layout
 
@@ -92,7 +137,10 @@ See `CLAUDE.md`'s Scope Control rule.
 │   ├── ranking/           # Stage 7: correctness classification, scoring, ranking
 │   ├── preferences/       # Stage 8: {prompt, chosen, rejected} DPO pair generation
 │   ├── training/          # Stage 9: 4-bit QLoRA + DPO training of a LoRA adapter
-│   └── model_evaluation/  # Stage 10: base-vs-DPO evaluation, pass@k, bootstrap CIs
+│   ├── model_evaluation/  # Stage 10: base-vs-DPO evaluation, pass@k, bootstrap CIs
+│   ├── analysis/          # Stage 11: failure taxonomy, data gaps, recommendations
+│   ├── pipeline/          # Stage 12: stage graph, orchestrator, cache, lineage, reports
+│   └── packaging/         # Stage 12: model packages, verification, registry, inference
 ├── tests/                 # pytest suite — see tests/README.md
 ├── data/                  # pipeline artifacts (tracked; see data/README.md)
 │   ├── problems/problems.jsonl     # the Stage 2 dataset
@@ -102,15 +150,23 @@ See `CLAUDE.md`'s Scope Control rule.
 │   ├── rankings/runs/              # Stage 7: one directory per ranking run
 │   ├── preferences/runs/           # Stage 8: one directory per preference run
 │   ├── training/runs/              # Stage 9: one directory per training run
-│   └── model_evaluations/runs/     # Stage 10: one directory per evaluation run
+│   ├── model_evaluations/runs/     # Stage 10: one directory per evaluation run
+│   ├── analysis/runs/              # Stage 11: one directory per analysis run
+│   └── experiments/runs/           # Stage 12: one directory per orchestrated experiment
 ├── benchmarks/             # Stage 10: held-out evaluation benchmark manifests
+├── models/registry.json    # Stage 12: the packaged-model registry
 ├── docker/evaluator/       # Stage 6: the pytest-preinstalled evaluation image
+├── docker/Dockerfile       # Stage 12: the training/inference image (NOT the sandbox)
 ├── docs/                  # sandbox-security.md — threat model and isolation boundaries
 ├── examples/              # hello.py — a harmless file for exercising the sandbox
 ├── scripts/               # operational scripts (real-model smoke test)
 ├── configs/training/      # Stage 9: DPO/QLoRA experiment configurations
 ├── configs/evaluation/    # Stage 10: base-vs-DPO evaluation configurations
+├── configs/analysis/      # Stage 11: analysis thresholds and evidence gates
+├── configs/experiments/   # Stage 12: end-to-end experiment configurations
+├── requirements.lock      # Stage 12: the exact verified dependency set
 ├── config.yaml            # project name, data paths, logging, model, generation, sandbox, evaluation
+├── PROJECT_DETAILS.md     # what this project is, in plain language — read this first
 └── CLAUDE.md              # engineering rules for this project
 ```
 
@@ -210,12 +266,42 @@ python -m python_dpo train dpo --config configs/training/dpo_qlora.yaml \
 python -m python_dpo train verify --training-run-id TRAIN_ID     # mandatory adapter reload
 python -m python_dpo train inference --training-run-id TRAIN_ID --prompt "..."
 python -m python_dpo train list / show --training-run-id TRAIN_ID
+
+python -m python_dpo evaluate-model --benchmark python_eval_v1 --training-run-id TRAIN_ID
+python -m python_dpo evaluate-model validate / report / stats --evaluation-run-id EVAL_ID
+python -m python_dpo evaluate-model compare --runs EVAL_A,EVAL_B
+python -m python_dpo evaluate-model list
+
+python -m python_dpo analyze --evaluation-run-id EVAL_ID          # full analysis (Stage 11)
+python -m python_dpo analyze errors --evaluation-run-id EVAL_ID
+python -m python_dpo analyze data-gaps --evaluation-run-id EVAL_ID --preference-run-id PREF_ID
+python -m python_dpo analyze recommend --evaluation-run-id EVAL_ID
+python -m python_dpo analyze refine --evaluation-run-id EVAL_ID   # never retrains
+python -m python_dpo analyze list / show --analysis-run-id ANALYSIS_ID
+
+python -m python_dpo experiment preflight --config configs/experiments/qwen_python_dpo_v1.yaml
+python -m python_dpo experiment graph --config CONFIG              # the stage sequence
+python -m python_dpo experiment run --config CONFIG                # the whole pipeline (Stage 12)
+python -m python_dpo experiment run --config CONFIG --dry-run
+python -m python_dpo experiment run --config CONFIG --force STAGE --set dpo_training.beta=0.2
+python -m python_dpo experiment resume --experiment-run-id EXP_ID
+python -m python_dpo experiment retry --experiment-run-id EXP_ID --stage STAGE
+python -m python_dpo experiment status / list
+python -m python_dpo experiment archive --experiment-run-id EXP_ID
+python -m python_dpo experiment inspect --archive PATH.tar.gz
+python -m python_dpo experiment reproduce --experiment-run-id EXP_ID [--verify-only]
+
+python -m python_dpo model package --training-run-id TRAIN_ID      # package + verify (Stage 12)
+python -m python_dpo model generate --model-package DIR --prompt "..."
+python -m python_dpo model generate-batch --model-package DIR --input IN --output OUT
+python -m python_dpo model evaluate --model-package DIR
+python -m python_dpo model merge --model-package DIR --out DIR
+python -m python_dpo model promote --model-id ID --status VALIDATED
+python -m python_dpo model compare / list
 ```
 
-The remaining subcommand exists as a **placeholder only**. It logs a "not implemented
-yet" message and exits with status `1` — it does no real work:
-
-- `python -m python_dpo run`
+Every subcommand is implemented; the Stage 1 `run` placeholder was removed when Stage 12
+landed, since `experiment run` is what it was reserved for.
 
 ## Configuration
 
@@ -230,10 +316,40 @@ rather than here, so a second experiment is a second file; only `paths.training`
 to `config.yaml`. Stage 8 preference generation does have a section here: a `preferences` section (default
 selection policy, minimum score margin, max pairs per problem, split ratios/seed) —
 every field is overridable per-invocation by the matching `preferences generate` flag.
+Stages 10, 11 and 12 follow Stage 9's pattern of standalone files —
+`configs/evaluation/python_eval.yaml`, `configs/analysis/python_analysis.yaml` (thresholds
+and evidence gates), and `configs/experiments/*.yaml` (which stages run, and with what
+settings) — so a second experiment is a second file rather than an edit here. `config.yaml`
+gains only the `paths.model_evaluations`, `paths.analysis` and `paths.experiments` entries.
 See `src/python_dpo/config.py` for how it's loaded and validated.
 
 The model identifier lives in configuration and never in source code, so swapping models
 requires no code change. **No credentials belong in this file.**
+
+## Stage 1 — Project Skeleton
+
+### Purpose
+
+The foundation every later stage sits on: an installable package, an `argparse` CLI with
+one subcommand group per stage, stderr logging, and a **typed** `config.yaml` loader that
+validates on load rather than failing deep inside a pipeline run.
+
+### What it establishes
+
+- `pip install -e ".[dev]"` gives a working `python -m python_dpo` with **PyYAML as the only
+  runtime dependency**. Torch, transformers, TRL and PEFT are optional extras, so the core
+  install and the entire default test suite stay lightweight and offline.
+- `Config.load()` resolves every data path relative to the project root and fails loudly on
+  a missing key, so a typo surfaces immediately rather than after an hour of generation.
+- The model identifier lives in configuration, never in source — swapping models is a config
+  edit, not a code change.
+- Logging goes to **stderr**, keeping stdout clean for machine-readable command output.
+
+### The placeholder that became Stage 12
+
+Stage 1 reserved a `run` subcommand that logged "not implemented yet" and exited `1`. It sat
+there through ten stages as the marker for a future end-to-end driver, and was removed when
+Stage 12's `experiment run` filled that role.
 
 ## Stage 2 — Problem Dataset
 
@@ -1181,4 +1297,203 @@ a manufactured "yes."
 pytest -q                  # offline, zero skips — pass@k, bootstrap, comparison, benchmark
 pytest -q -m integration   # Docker: EvaluationDriver through the real Stage 6 sandbox
 pytest -q -m gpu           # CUDA: adapter isolation, integrity failures, smoke generation
+```
+
+## Stage 11 — Error Analysis and Iteration
+
+### Purpose
+
+Stage 10 answers *"did DPO help?"* with a number. Stage 11 asks the question that number
+cannot: **what should change next?** It classifies every failure, sorts problems into
+improvements and regressions, measures test-level failure frequencies and output diversity,
+compares what was trained against what was measured, and emits an evidence-scored
+recommendation set plus a refined preference dataset.
+
+It is **pure computation over persisted artifacts** — no model, no GPU, no Docker — so the
+whole stage runs in the default offline test suite.
+
+### Four boundaries, enforced in code
+
+- **Classification is deterministic, never an LLM.** Test status, error type, exit code and
+  timeout flag are the evidence. An AI judge is forbidden as the primary classifier: its
+  labels cannot be audited or reproduced, and every recommendation built on them would be
+  unfalsifiable.
+- **Correlation is never stated as causation.** Reports say *"potential data gap"*; a list of
+  forbidden causal phrases is asserted absent from the rendered output in tests.
+- **The benchmark is never contaminated.** A refined dataset that would carry a held-out
+  problem raises `RefinementLeakageError` *before any file is written* — it raises rather
+  than filtering, so an attempted leak leaves evidence.
+- **Nothing is retrained.** The stage writes `next_experiment.yaml` and stops.
+
+### The evidence gate
+
+Below the configured minimum benchmark size, or with a result range too wide to be
+informative, the iteration decision is `insufficient_evidence` — and **no other conclusion
+may be reported as the headline**, however suggestive the other analyses look. The report
+says so in its opening paragraph rather than burying it.
+
+On the committed run both the coverage and failure analyses found things worth acting on.
+The gate suppressed them anyway.
+
+### Running it
+
+```bash
+python -m python_dpo analyze --evaluation-run-id EVAL_ID     # full analysis
+python -m python_dpo analyze errors    --evaluation-run-id EVAL_ID
+python -m python_dpo analyze data-gaps --evaluation-run-id EVAL_ID --preference-run-id PREF_ID
+python -m python_dpo analyze recommend --evaluation-run-id EVAL_ID
+python -m python_dpo analyze refine    --evaluation-run-id EVAL_ID
+python -m python_dpo analyze list / show --analysis-run-id ANALYSIS_ID
+```
+
+The lineage chain (`evaluation → training → preference → ranking → candidate`) is resolved
+by hopping manifests and is a **precondition**: a broken hop raises rather than letting the
+analysis proceed over a partial chain.
+
+### Persisted evidence
+
+```
+data/analysis/runs/analysis_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json / config.yaml / summary.json
+├── classifications/{base,dpo}_error_profile.json + *_errors.jsonl
+├── improvements/improvements.jsonl · regressions/regressions.jsonl
+├── analysis/{test_failures,diversity,training_curve}.json
+├── data_gaps/{category,difficulty}_gaps.json + preference_coverage.json
+├── refined_dataset/{hard,regression,successful_dpo}_examples.jsonl
+├── refined_dataset/refined_preferences.jsonl + refined_preference_plan.json
+├── recommendations/{next_experiment.yaml,recommendations.json}
+└── reports/analysis.md
+```
+
+Empty files are written deliberately — "no regressions" must stay distinguishable from "the
+stage never ran".
+
+### What the committed run shows
+
+```
+Decision:       insufficient_evidence   (7 benchmark problems, below the minimum of 30)
+Outcomes:       0 improved · 0 regressed · 7 unchanged
+Diversity:      base 0.314 · dpo 0.286 · no mode-collapse warning
+Training curve: insufficient_data       (one logged step)
+Top finding:    expand_benchmark        (high confidence)
+```
+
+The structural finding is the informative one: the training split covered `edge_cases` and
+`exceptions` while the benchmark measures seven entirely different categories. **Nothing
+trained was ever measured.** That survives the evidence gate because it is a fact about the
+split rather than a statistical claim.
+
+Full detail: [`11_ERROR_ANALYSIS_AND_ITERATION.md`](11_ERROR_ANALYSIS_AND_ITERATION.md).
+
+### Testing
+
+```bash
+pytest -q tests/analysis/   # 123 tests, all offline — no Docker, no GPU, no markers
+```
+
+## Stage 12 — Pipeline Orchestration and Productionization
+
+### Purpose
+
+Eleven stages meant eleven commands, run by hand, with the lineage existing only as a
+sequence of manifest hops that nothing recorded and nothing verified. Stage 12 closes that:
+**one configuration file, one command, one experiment id, and every artifact traceable to
+it** — plus the productionization half, packaging a trained adapter into something loadable
+and verified.
+
+### The stage graph
+
+Nine registered stages, topologically ordered, adapters referenced as dotted strings so
+describing the graph never imports torch:
+
+```
+problem_dataset → candidate_generation → candidate_execution
+  → candidate_evaluation → preference_generation → dpo_training
+       → model_evaluation → error_analysis
+       → packaging
+```
+
+`packaging` requires `dpo_training`, **not** `model_evaluation` — packaging needs a trained
+adapter, not a held-out evaluation of one — making the two graph-parallel siblings.
+
+### Caching, derived rather than tabulated
+
+A stage's cache key covers its inputs' output hashes, its own resolved config, the code
+version and the model version. So changing DPO beta invalidates training → evaluation →
+analysis automatically, and **provably cannot** invalidate problem or candidate generation.
+There is no hand-maintained invalidation table to drift.
+
+The git SHA is recorded in the manifest but deliberately **excluded** from the key —
+including it would invalidate everything on every commit, documentation included.
+
+### Running it
+
+```bash
+python -m python_dpo experiment preflight --config configs/experiments/qwen_python_dpo_v1.yaml
+python -m python_dpo experiment graph     --config CONFIG
+python -m python_dpo experiment run       --config CONFIG
+python -m python_dpo experiment run       --config CONFIG --dry-run
+python -m python_dpo experiment run       --config CONFIG --set dpo_training.beta=0.2
+python -m python_dpo experiment run       --config CONFIG --force dpo_training
+python -m python_dpo experiment resume    --experiment-run-id EXP_ID
+python -m python_dpo experiment retry     --experiment-run-id EXP_ID --stage STAGE
+python -m python_dpo experiment archive / inspect / reproduce
+```
+
+Preflight validates GPU, Docker, model, dataset, benchmark and both stage configs before
+anything runs. A failing stage is recorded `FAILED`; everything downstream becomes
+`BLOCKED` and is never executed against incomplete artifacts. `SIGTERM` and `SIGINT` take
+one path, marking the in-flight stage `CANCELLED` and leaving completed artifacts intact.
+
+### Packaging and the registry
+
+```bash
+python -m python_dpo model package  --training-run-id TRAIN_ID
+python -m python_dpo model generate --model-package DIR --prompt "..."
+python -m python_dpo model promote  --model-id ID --status VALIDATED
+```
+
+A package is `adapter/` + `tokenizer/` + `manifest.json`; the **base model is referenced by
+name and revision, never copied**. Verification is not optional and has no skip flag: the
+packaged adapter is loaded, asked to write a function, and that code is **executed through
+the Stage 5/6 sandbox**. Only then is it registered — always as `EXPERIMENTAL`. Reaching
+`RECOMMENDED` requires passing through `VALIDATED` first, plus a recorded passing evaluation
+the tool reads from the report rather than accepting on assertion.
+
+### Persisted evidence
+
+```
+data/experiments/runs/exp_YYYYMMDD_HHMMSS_xxxx/
+├── manifest.json · resolved_config.yaml (immutable) · environment.json
+├── artifacts.json      # every stage output by path + SHA-256 + size
+├── lineage.json        # the resolved chain, recorded as a fact
+├── stages/<stage>/stage_manifest.json
+├── model/{adapter,tokenizer,manifest.json}
+└── reports/{experiment_metrics.json,experiment_summary.md,
+            model_comparison.md,next_experiment.md}
+```
+
+Stage outputs stay in their canonical `data/<stage>/runs/` stores; this directory holds
+manifests and pointers. The one deliberate copy is `model/adapter/`, so a package is usable
+standalone.
+
+### What the committed run shows
+
+```
+exp_20260819_060948_f72e   completed   8 stages   11m21s   0.1339 GPU-hours
+Registered: exp_20260819_060948_f72e  EXPERIMENTAL  (verification 2/2 passed)
+```
+
+Real generation, real sandboxed execution, real training, real evaluation, real packaging.
+Two later runs stopped at guards that were **correct to fire** — the preference splitter
+needs ten pair-bearing problems and this dataset yields three, and the only pair-bearing
+problem inside the benchmark would have leaked. Both stops are committed as evidence.
+
+Full detail:
+[`12_PIPELINE_ORCHESTRATION_AND_PRODUCTIONIZATION.md`](12_PIPELINE_ORCHESTRATION_AND_PRODUCTIONIZATION.md).
+
+### Testing
+
+```bash
+pytest -q tests/pipeline/ tests/packaging/   # 240 tests, offline
 ```
